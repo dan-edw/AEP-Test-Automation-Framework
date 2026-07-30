@@ -1,0 +1,27 @@
+{
+  "name": "aep-test-automation-framework",
+  "version": "1.0.0",
+  "description": "Adobe Experience Platform Automation Framework using Playwright, TypeScript and GitHub Actions",
+  "author": "Daniel Edwards",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:dev": "cross-env ENVIRONMENT=dev playwright test",
+    "test:uat": "cross-env ENVIRONMENT=uat playwright test",
+    "test:prod": "cross-env ENVIRONMENT=prod playwright test",
+    "test:ui": "playwright test tests/ui",
+    "test:api": "playwright test tests/api",
+    "test:e2e": "playwright test tests/e2e",
+    "report": "playwright show-report",
+    "codegen": "playwright codegen",
+    "install:browsers": "playwright install"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.0.0",
+    "cross-env": "^10.0.0",
+    "dotenv": "^17.4.2",
+    "typescript": "^5.8.0"
+  }
+}

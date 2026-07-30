@@ -1,0 +1,17 @@
+node_modules/
+
+playwright-report/
+
+test-results/
+
+blob-report/
+
+coverage/
+
+.env.local
+
+*.log
+
+.DS_Store
+
+.vscode/settings.json

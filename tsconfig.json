@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+
+    "types": [
+      "node",
+      "@playwright/test"
+    ],
+
+    "strict": true,
+
+    "esModuleInterop": true,
+
+    "resolveJsonModule": true,
+
+    "allowSyntheticDefaultImports": true,
+
+    "forceConsistentCasingInFileNames": true,
+
+    "skipLibCheck": true,
+
+    "noEmit": true
+  },
+
+  "include": [
+    "pages/**/*.ts",
+    "api/**/*.ts",
+    "services/**/*.ts",
+    "tests/**/*.ts",
+    "utils/**/*.ts",
+    "config/**/*.ts"
+  ],
+
+  "exclude": [
+    "node_modules"
+  ]
+}
