@@ -1,15 +1,16 @@
 name: Karate API Tests
 on:
-  push:
-    branches:
-      - main
-      - develop
-      - 'feature/**'
-  pull_request:
-    branches:
-      - main
-      - develop
-  workflow_dispatch: 
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment
+        required: true
+        type: choice
+        default: UAT
+        options:
+          - DEV
+          - UAT
+          - PROD 
 env:
   JAVA_VERSION: '11'
 jobs:
@@ -23,8 +24,8 @@ jobs:
       - name: Setup Java tools
         uses: actions/setup-java@v4
         with:
-          distribution: 'jdkfile'
-          java-version: '11.0.28'
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
           architecture: x64
           overwrite-settings: false
           cache: 'maven'
