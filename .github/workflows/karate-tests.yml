@@ -1,55 +1,145 @@
 name: Karate API Tests
+
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Environment
+        description: Test Environment
         required: true
         type: choice
-        default: UAT
+        default: dev
         options:
-          - DEV
-          - UAT
-          - PROD 
+          - dev
+          - uat
+          - prod
+
+  push:
+    branches:
+      - main
+      - Updates
+
+  pull_request:
+    branches:
+      - main
+      - Updates
+
 env:
   JAVA_VERSION: '11'
+
 jobs:
   test:
-    name: Run Karate Tests
+    name: Karate API Tests
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout Code
+
+      # ----------------------------------------
+      # 1. Checkout
+      # ----------------------------------------
+
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Java tools
+
+
+      # ----------------------------------------
+      # 2. Java
+      # ----------------------------------------
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'jdkfile'
+          java-version: '11.0.28'
           architecture: x64
           overwrite-settings: false
-          cache: 'maven'
-      - name: Setup Maven
+          cache: maven
+
+
+      # ----------------------------------------
+      # 3. Maven configuration
+      # ----------------------------------------
+
+      - name: Configure Maven
         uses: s4u/maven-settings-action@894661b3ddae382f1ae8edbeab60987e08cf0788
         with:
           mirrors: |
             [{
-               "id": "nexus3-wrap-maven",
-               "name": "Nexus 3 Wrap Maven group repository",
-               "mirrorOf": "*",
-               "url": "https://nexus.itt.aws.oprd.com.au/repository/wrap-maven"
+              "id": "nexus3-wrap-maven",
+              "name": "Nexus 3 Wrap Maven group repository",
+              "mirrorOf": "*",
+              "url": "https://nexus.itt.aws.oprd.com.au/repository/wrap-maven"
             }]
-      - name: Tool versions
-        run: |
-          java -version
-          mvn --version
-      - name: Install Dependencies
-        run: mvn clean install -DskipTests
-      
+
+
+      # ----------------------------------------
+      # 4. Run Karate
+      # ----------------------------------------
+
       - name: Run Karate Tests
-        run: mvn test -Dkarate.env=dev
-      
-      - name: Upload Test Reports
+        id: karate
+        continue-on-error: true
+        run: |
+          mvn test -Dkarate.env=${{ github.event.inputs.environment || 'dev' }}
+
+
+      # ----------------------------------------
+      # 5. Authenticate with Xray
+      # ----------------------------------------
+
+      - name: Authenticate with Xray
+        if: always()
+        shell: bash
+        run: |
+
+          TOKEN=$(curl -s \
+            -H "Content-Type: application/json" \
+            -X POST \
+            https://xray.cloud.getxray.app/api/v2/authenticate \
+            -d '{
+              "client_id":"${{ secrets.XRAY_CLIENT_ID }}",
+              "client_secret":"${{ secrets.XRAY_CLIENT_SECRET }}"
+            }')
+
+          TOKEN=$(echo "$TOKEN" | tr -d '"')
+
+          echo "XRAY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+
+      # ----------------------------------------
+      # 6. Prepare Xray results
+      # ----------------------------------------
+
+      - name: Prepare Xray Results
+        if: always()
+        run: |
+          node scripts/xray-karate-convert.js
+
+
+      # ----------------------------------------
+      # 7. Publish results to Xray
+      # ----------------------------------------
+
+      - name: Publish Results to Xray
+        if: always()
+        shell: bash
+        run: |
+
+          RESPONSE=$(curl -s \
+            --fail-with-body \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: text/xml" \
+            --data @"target/surefire-reports/TEST-results.xml" \
+            "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=${{ secrets.XRAY_PROJECT_KEY }}")
+
+          echo "===== XRAY RESPONSE ====="
+          echo "$RESPONSE"
+
+
+      # ----------------------------------------
+      # 8. Upload reports
+      # ----------------------------------------
+
+      - name: Upload Karate Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -57,4 +147,17 @@ jobs:
           path: |
             target/karate-reports/
             target/surefire-reports/
-          retention-days: 1
+          retention-days: 7
+
+
+      # ----------------------------------------
+      # 9. Fail workflow if tests failed
+      # ----------------------------------------
+
+      - name: Check Test Result
+        if: always()
+        run: |
+          if [ "${{ steps.karate.outcome }}" != "success" ]; then
+            echo "Karate tests failed"
+            exit 1
+          fi
