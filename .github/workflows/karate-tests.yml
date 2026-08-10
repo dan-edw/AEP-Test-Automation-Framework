@@ -1,6 +1,7 @@
 name: Karate API Tests
 
 on:
+
   workflow_dispatch:
     inputs:
       environment:
@@ -23,12 +24,17 @@ on:
       - main
       - Updates
 
+
 env:
   JAVA_VERSION: '11'
 
+
 jobs:
+
   test:
+
     name: Karate API Tests
+
     runs-on: [self-hosted, arc]
 
     steps:
@@ -42,7 +48,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 2. Java
+      # 2. Setup Java
       # ----------------------------------------
 
       - name: Setup Java
@@ -50,12 +56,11 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '11'
-          architecture: 'x64'
           cache: 'maven'
 
 
       # ----------------------------------------
-      # 3. Maven configuration
+      # 3. Configure Maven
       # ----------------------------------------
 
       - name: Configure Maven
@@ -71,7 +76,17 @@ jobs:
 
 
       # ----------------------------------------
-      # 4. Install Dependencies
+      # 4. Verify Java / Maven
+      # ----------------------------------------
+
+      - name: Tool versions
+        run: |
+          java -version
+          mvn --version
+
+
+      # ----------------------------------------
+      # 5. Build / Install
       # ----------------------------------------
 
       - name: Install Dependencies
@@ -79,7 +94,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 5. Run Karate
+      # 6. Run Karate
       # ----------------------------------------
 
       - name: Run Karate Tests
@@ -90,60 +105,50 @@ jobs:
 
 
       # ----------------------------------------
-      # 6. Authenticate with Xray
+      # 7. Authenticate with Xray
       # ----------------------------------------
 
-      - name: Authenticate with Xray
-        if: always()
-        shell: bash
-        run: |
+      #- name: Authenticate with Xray
+      #  if: always()
+      #  shell: bash
+      #  run: |
 
-          TOKEN=$(curl -s \
-            -H "Content-Type: application/json" \
-            -X POST \
-            https://xray.cloud.getxray.app/api/v2/authenticate \
-            -d '{
-              "client_id":"${{ secrets.XRAY_CLIENT_ID }}",
-              "client_secret":"${{ secrets.XRAY_CLIENT_SECRET }}"
-            }')
+      #   TOKEN=$(curl -s \
+      #     -H "Content-Type: application/json" \
+      #     -X POST \
+      #     https://xray.cloud.getxray.app/api/v2/authenticate \
+      #     -d '{
+      #       "client_id":"${{ secrets.XRAY_CLIENT_ID }}",
+      #       "client_secret":"${{ secrets.XRAY_CLIENT_SECRET }}"
+      #     }')
 
-          TOKEN=$(echo "$TOKEN" | tr -d '"')
+      #   TOKEN=$(echo "$TOKEN" | tr -d '"')
 
-          echo "XRAY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-
-
-      # ----------------------------------------
-      # 7. Prepare Xray results
-      # ----------------------------------------
-
-      - name: Prepare Xray Results
-        if: always()
-        run: |
-          node scripts/xray-karate-convert.js
+      #   echo "XRAY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
 
       # ----------------------------------------
-      # 8. Publish results to Xray
+      # 8. Publish Results to Xray
       # ----------------------------------------
 
-      - name: Publish Results to Xray
-        if: always()
-        shell: bash
-        run: |
+      #- name: Publish Results to Xray
+      #  if: always()
+      #  shell: bash
+      #  run: |
 
-          RESPONSE=$(curl -s \
-            --fail-with-body \
-            -H "Authorization: Bearer $XRAY_TOKEN" \
-            -H "Content-Type: text/xml" \
-            --data @"target/surefire-reports/TEST-results.xml" \
-            "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=${{ secrets.XRAY_PROJECT_KEY }}")
+      #   RESPONSE=$(curl -s \
+      #     --fail-with-body \
+      #     -H "Authorization: Bearer $XRAY_TOKEN" \
+      #     -H "Content-Type: text/xml" \
+      #     --data @"target/surefire-reports/TEST-results.xml" \
+      #      "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=${{ secrets.XRAY_PROJECT_KEY }}")
 
-          echo "===== XRAY RESPONSE ====="
-          echo "$RESPONSE"
+      #   echo "===== XRAY RESPONSE ====="
+      #   echo "$RESPONSE"
 
 
       # ----------------------------------------
-      # 9. Upload reports
+      # 9. Upload Reports
       # ----------------------------------------
 
       - name: Upload Karate Reports
@@ -158,12 +163,13 @@ jobs:
 
 
       # ----------------------------------------
-      # 10. Fail workflow if tests failed
+      # 10. Fail workflow if Karate failed
       # ----------------------------------------
 
       - name: Check Test Result
         if: always()
         run: |
+
           if [ "${{ steps.karate.outcome }}" != "success" ]; then
             echo "Karate tests failed"
             exit 1
