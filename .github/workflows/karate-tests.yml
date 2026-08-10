@@ -48,11 +48,10 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'jdkfile'
-          java-version: '11.0.28'
-          architecture: x64
-          overwrite-settings: false
-          cache: maven
+          distribution: 'temurin'
+          java-version: '11'
+          architecture: 'x64'
+          cache: 'maven'
 
 
       # ----------------------------------------
@@ -72,7 +71,15 @@ jobs:
 
 
       # ----------------------------------------
-      # 4. Run Karate
+      # 4. Install Dependencies
+      # ----------------------------------------
+
+      - name: Install Dependencies
+        run: mvn clean install -DskipTests
+
+
+      # ----------------------------------------
+      # 5. Run Karate
       # ----------------------------------------
 
       - name: Run Karate Tests
@@ -83,7 +90,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 5. Authenticate with Xray
+      # 6. Authenticate with Xray
       # ----------------------------------------
 
       - name: Authenticate with Xray
@@ -106,7 +113,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 6. Prepare Xray results
+      # 7. Prepare Xray results
       # ----------------------------------------
 
       - name: Prepare Xray Results
@@ -116,7 +123,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 7. Publish results to Xray
+      # 8. Publish results to Xray
       # ----------------------------------------
 
       - name: Publish Results to Xray
@@ -136,7 +143,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 8. Upload reports
+      # 9. Upload reports
       # ----------------------------------------
 
       - name: Upload Karate Reports
@@ -151,7 +158,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 9. Fail workflow if tests failed
+      # 10. Fail workflow if tests failed
       # ----------------------------------------
 
       - name: Check Test Result
