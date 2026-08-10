@@ -23,8 +23,8 @@ jobs:
       - name: Setup Java tools
         uses: actions/setup-java@v4
         with:
-          distribution: 'jdkfile'
-          java-version: '11.0.28'
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
           architecture: x64
           overwrite-settings: false
           cache: 'maven'
