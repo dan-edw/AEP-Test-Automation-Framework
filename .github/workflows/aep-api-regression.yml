@@ -65,6 +65,17 @@ jobs:
 
 
       # ----------------------------------------
+      # Inspect Postman CLI
+      # ----------------------------------------    
+      
+      - name: Inspect Postman CLI
+        run: |
+          postman --version
+          postman --help
+          postman collection --help
+
+
+      # ----------------------------------------
       # 4. Verify Postman CLI
       # ----------------------------------------
 
