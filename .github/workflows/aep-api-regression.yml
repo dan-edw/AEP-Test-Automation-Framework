@@ -1,4 +1,4 @@
-name: AEP API Regression
+name: AEP API Tests
 
 on:
 
@@ -18,20 +18,24 @@ on:
   push:
     branches:
       - main
-      - Updates
+
+  pull_request:
+    branches:
+      - main
+
 
 jobs:
 
-  api-tests:
+  test:
 
-    name: AEP API Tests
+    name: Run AEP API Tests
 
     runs-on: ubuntu-latest
 
     steps:
 
       # ----------------------------------------
-      # 1. Checkout
+      # 1. Checkout repository
       # ----------------------------------------
 
       - name: Checkout
@@ -39,70 +43,77 @@ jobs:
 
 
       # ----------------------------------------
-      # 2. Run Postman collection
+      # 2. Setup Node
+      # ----------------------------------------
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+
+      # ----------------------------------------
+      # 3. Install Postman CLI
+      # ----------------------------------------
+
+      - name: Install Postman CLI
+        run: |
+          npm install -g postman
+
+
+      # ----------------------------------------
+      # 4. Verify Postman CLI
+      # ----------------------------------------
+
+      - name: Verify Postman CLI
+        run: |
+          postman --version
+
+
+      # ----------------------------------------
+      # 5. Select environment
+      # ----------------------------------------
+
+      - name: Select Postman Environment
+        id: environment
+        shell: bash
+        run: |
+
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
+
+          echo "Running AEP API tests against: $ENVIRONMENT"
+
+          echo "ENV_FILE=postman/environments/${ENVIRONMENT}.json" >> "$GITHUB_OUTPUT"
+
+
+      # ----------------------------------------
+      # 6. Run Postman collection
       # ----------------------------------------
 
       - name: Run AEP API Tests
         id: postman
-        uses: postmanlabs/postman-cli-action@v1
-        with:
-          command: >
-            collection run
-            postman/aep-regression.json
-            --environment postman/${{ github.event.inputs.environment || 'dev' }}.json
-          api-key: ${{ secrets.POSTMAN_API_KEY }}
-
-
-      # ----------------------------------------
-      # 3. Authenticate with Xray
-      # ----------------------------------------
-
-      - name: Authenticate with Xray
-        if: always()
+        continue-on-error: true
         shell: bash
         run: |
 
-          TOKEN=$(curl -s \
-            -H "Content-Type: application/json" \
-            -X POST \
-            https://xray.cloud.getxray.app/api/v2/authenticate \
-            -d '{
-              "client_id":"${{ secrets.XRAY_CLIENT_ID }}",
-              "client_secret":"${{ secrets.XRAY_CLIENT_SECRET }}"
-            }')
-
-          TOKEN=$(echo "$TOKEN" | tr -d '"')
-
-          echo "XRAY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          postman collection run \
+            "postman/collections/aep-regression.json" \
+            --environment "${{ steps.environment.outputs.ENV_FILE }}"
 
 
       # ----------------------------------------
-      # 4. Publish results to Xray
-      # ----------------------------------------
-
-      - name: Publish Results to Xray
-        if: always()
-        shell: bash
-        run: |
-
-          echo "Publishing API results to Xray..."
-
-          # Xray import goes here
-
-
-      # ----------------------------------------
-      # 5. Fail workflow if API tests failed
+      # 7. Check test result
       # ----------------------------------------
 
       - name: Check Test Result
         if: always()
+        shell: bash
         run: |
 
-          if [ "${{ steps.postman.outputs.exit-code }}" != "0" ]; then
-            echo "Postman API tests failed"
+          if [ "${{ steps.postman.outcome }}" != "success" ]; then
+
+            echo "AEP API tests failed"
+
             exit 1
-<<<<<<< HEAD
+
           fi
-=======
-          fi
->>>>>>> f080fc890834853606608f4d3855cf8e626c4116
