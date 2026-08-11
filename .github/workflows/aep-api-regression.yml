@@ -3,7 +3,6 @@ name: AEP API Tests
 on:
 
   workflow_dispatch:
-
     inputs:
       environment:
         description: Test Environment
@@ -18,10 +17,12 @@ on:
   push:
     branches:
       - main
+      - Updates
 
   pull_request:
     branches:
       - main
+      - Updates
 
 
 jobs:
@@ -59,10 +60,8 @@ jobs:
       - name: Install Postman CLI
         shell: bash
         run: |
-         curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
-
-         echo "$HOME/.postman/bin" >> "$GITHUB_PATH"
-
+          curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
+          echo "$HOME/.postman/bin" >> "$GITHUB_PATH"
 
 
       # ----------------------------------------
@@ -75,27 +74,17 @@ jobs:
 
 
       # ----------------------------------------
-      # Authenticate Postman CLI
+      # 5. Inspect Postman files
       # ----------------------------------------
-      
-      - name: Authenticate Postman CLI
-        run: |
-         postman login --with-api-key "${{ secrets.POSTMAN_API_KEY }}"
-  
-      
-      # ----------------------------------------
-      # Inspect Postman files
-      # ----------------------------------------
-      
+
       - name: Inspect Postman files
         run: |
-         echo "=== Repository structure ==="
-         find postman -maxdepth 5 -type f | sort
-
+          echo "=== Repository structure ==="
+          find postman -maxdepth 5 -type f | sort
 
 
       # ----------------------------------------
-      # 5. Select environment
+      # 6. Select environment
       # ----------------------------------------
 
       - name: Select Postman Environment
@@ -107,11 +96,20 @@ jobs:
 
           echo "Running AEP API Regression against: $ENVIRONMENT"
 
-          echo "ENV_FILE=postman/environments/${ENVIRONMENT}.json" >> "$GITHUB_OUTPUT"
+          ENV_FILE="postman/environments/${ENVIRONMENT}.json"
+
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "ERROR: Environment file not found: $ENV_FILE"
+            exit 1
+          fi
+
+          echo "Using environment file: $ENV_FILE"
+
+          echo "ENV_FILE=$ENV_FILE" >> "$GITHUB_OUTPUT"
 
 
       # ----------------------------------------
-      # 6. Run Postman collection
+      # 7. Run Postman collection
       # ----------------------------------------
 
       - name: Run AEP API Tests
@@ -122,11 +120,26 @@ jobs:
 
           postman collection run \
             "postman/collections/aep-regression.json" \
-            --environment "${{ steps.environment.outputs.ENV_FILE }}"
+            --environment "${{ steps.environment.outputs.ENV_FILE }}" \
+            --reporters cli,junit \
+            --reporter-junit-export "postman-results.xml"
 
 
       # ----------------------------------------
-      # 7. Check test result
+      # 8. Upload Postman results
+      # ----------------------------------------
+
+      - name: Upload Postman Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postman-results
+          path: postman-results.xml
+          retention-days: 7
+
+
+      # ----------------------------------------
+      # 9. Check test result
       # ----------------------------------------
 
       - name: Check Test Result
@@ -135,9 +148,6 @@ jobs:
         run: |
 
           if [ "${{ steps.postman.outcome }}" != "success" ]; then
-
             echo "AEP API tests failed"
-
             exit 1
-
           fi
