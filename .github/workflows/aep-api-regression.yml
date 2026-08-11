@@ -1,7 +1,9 @@
-name: AEP API Regression
+name: AEP API Tests
 
 on:
+
   workflow_dispatch:
+
     inputs:
       environment:
         description: Test Environment
@@ -16,22 +18,19 @@ on:
   push:
     branches:
       - main
-      - Updates
 
   pull_request:
     branches:
       - main
-      - Updates
 
 
 jobs:
-  api-tests:
-    name: Run AEP API Regression
-    runs-on: ubuntu-latest
 
-    # This selects the GitHub Environment and therefore
-    # exposes the correct environment secrets.
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+  test:
+
+    name: Run AEP API Tests
+
+    runs-on: ubuntu-latest
 
     steps:
 
@@ -39,77 +38,106 @@ jobs:
       # 1. Checkout repository
       # ----------------------------------------
 
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
 
       # ----------------------------------------
-      # 2. Install Postman CLI
+      # 2. Setup Node
+      # ----------------------------------------
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+
+      # ----------------------------------------
+      # 3. Install Postman CLI
       # ----------------------------------------
 
       - name: Install Postman CLI
+        shell: bash
         run: |
-          npm install -g postman-cli
+         curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
+
+         echo "$HOME/.postman/bin" >> "$GITHUB_PATH"
+
+
+
+      # ----------------------------------------
+      # 4. Verify Postman CLI
+      # ----------------------------------------
+
+      - name: Verify Postman CLI
+        run: |
           postman --version
 
 
       # ----------------------------------------
-      # 3. Verify collection exists
+      # Authenticate Postman CLI
       # ----------------------------------------
-
-      - name: Verify Postman collection
+      
+      - name: Authenticate Postman CLI
         run: |
-          test -f postman/collections/aep-regression.json
-          echo "Collection found:"
-          ls -lh postman/collections/aep-regression.json
+         postman login --with-api-key "${{ secrets.POSTMAN_API_KEY }}"
+  
+      
+      # ----------------------------------------
+      # Inspect Postman files
+      # ----------------------------------------
+      
+      - name: Inspect Postman files
+        run: |
+         echo "=== Repository structure ==="
+         find postman -maxdepth 5 -type f | sort
+
 
 
       # ----------------------------------------
-      # 4. Run Postman collection
+      # 5. Select environment
       # ----------------------------------------
 
-      - name: Run AEP regression collection
+      - name: Select Postman Environment
+        id: environment
+        shell: bash
+        run: |
+
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
+
+          echo "Running AEP API Regression against: $ENVIRONMENT"
+
+          echo "ENV_FILE=postman/environments/${ENVIRONMENT}.json" >> "$GITHUB_OUTPUT"
+
+
+      # ----------------------------------------
+      # 6. Run Postman collection
+      # ----------------------------------------
+
+      - name: Run AEP API Tests
         id: postman
         continue-on-error: true
-        env:
-          AEP_CLIENT_ID: ${{ secrets.AEP_CLIENT_ID }}
-          AEP_CLIENT_SECRET: ${{ secrets.AEP_CLIENT_SECRET }}
-          AEP_SCOPE: ${{ secrets.AEP_SCOPE }}
+        shell: bash
         run: |
-          mkdir -p test-results
 
           postman collection run \
-            postman/collections/aep-regression.json \
-            --env-var "AEP_CLIENT_ID=$AEP_CLIENT_ID" \
-            --env-var "AEP_CLIENT_SECRET=$AEP_CLIENT_SECRET" \
-            --env-var "AEP_SCOPE=$AEP_SCOPE" \
-            --reporters cli,junit \
-            --reporter-junit-export test-results/postman-results.xml
+            "postman/collections/aep-regression.json" \
+            --environment "${{ steps.environment.outputs.ENV_FILE }}"
 
 
       # ----------------------------------------
-      # 5. Upload Postman results
+      # 7. Check test result
       # ----------------------------------------
 
-      - name: Upload Postman test results
+      - name: Check Test Result
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: postman-test-results
-          path: test-results/
-          retention-days: 7
-
-
-      # ----------------------------------------
-      # 6. Fail workflow if Postman tests failed
-      # ----------------------------------------
-
-      - name: Check Postman test result
-        if: always()
+        shell: bash
         run: |
-          if [ "${{ steps.postman.outcome }}" != "success" ]; then
-            echo "Postman API tests failed"
-            exit 1
-          fi
 
-          echo "Postman API tests passed"
+          if [ "${{ steps.postman.outcome }}" != "success" ]; then
+
+            echo "AEP API tests failed"
+
+            exit 1
+
+          fi
