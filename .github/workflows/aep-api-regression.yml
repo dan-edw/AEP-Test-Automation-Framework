@@ -1,0 +1,104 @@
+name: AEP API Regression
+
+on:
+
+  workflow_dispatch:
+
+    inputs:
+      environment:
+        description: Test Environment
+        required: true
+        type: choice
+        default: dev
+        options:
+          - dev
+          - uat
+          - prod
+
+  push:
+    branches:
+      - main
+      - Updates
+
+jobs:
+
+  api-tests:
+
+    name: AEP API Tests
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------
+      # 1. Checkout
+      # ----------------------------------------
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------
+      # 2. Run Postman collection
+      # ----------------------------------------
+
+      - name: Run AEP API Tests
+        id: postman
+        uses: postmanlabs/postman-cli-action@v1
+        with:
+          command: >
+            collection run
+            postman/aep-regression.json
+            --environment postman/${{ github.event.inputs.environment || 'dev' }}.json
+          api-key: ${{ secrets.POSTMAN_API_KEY }}
+
+
+      # ----------------------------------------
+      # 3. Authenticate with Xray
+      # ----------------------------------------
+
+      - name: Authenticate with Xray
+        if: always()
+        shell: bash
+        run: |
+
+          TOKEN=$(curl -s \
+            -H "Content-Type: application/json" \
+            -X POST \
+            https://xray.cloud.getxray.app/api/v2/authenticate \
+            -d '{
+              "client_id":"${{ secrets.XRAY_CLIENT_ID }}",
+              "client_secret":"${{ secrets.XRAY_CLIENT_SECRET }}"
+            }')
+
+          TOKEN=$(echo "$TOKEN" | tr -d '"')
+
+          echo "XRAY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+
+      # ----------------------------------------
+      # 4. Publish results to Xray
+      # ----------------------------------------
+
+      - name: Publish Results to Xray
+        if: always()
+        shell: bash
+        run: |
+
+          echo "Publishing API results to Xray..."
+
+          # Xray import goes here
+
+
+      # ----------------------------------------
+      # 5. Fail workflow if API tests failed
+      # ----------------------------------------
+
+      - name: Check Test Result
+        if: always()
+        run: |
+
+          if [ "${{ steps.postman.outputs.exit-code }}" != "0" ]; then
+            echo "Postman API tests failed"
+            exit 1
+          fi
