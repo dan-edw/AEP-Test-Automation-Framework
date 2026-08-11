@@ -1,0 +1,46 @@
+$kind: http-request
+name: Request Access Token
+url: https://{{IMS}}/ims/token/v2?grant_type=client_credentials&client_id={{API_KEY}}&client_secret={{CLIENT_SECRET}}&scope={{SCOPES}}
+method: POST
+queryParams:
+  grant_type: client_credentials
+  client_id: "{{API_KEY}}"
+  client_secret: "{{CLIENT_SECRET}}"
+  scope: "{{SCOPES}}"
+scripts:
+  - type: afterResponse
+    code: "const response = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Authentication successful\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Access token is returned\", function () {\r
+
+      \    pm.expect(response.access_token).to.exist;\r
+
+      });\r
+
+      \r
+
+      if (response.access_token) {\r
+
+      \    pm.environment.set(\"ACCESS_TOKEN\", response.access_token);\r
+
+      \    console.log(\"ACCESS_TOKEN successfully stored.\");\r
+
+      } else {\r
+
+      \    console.log(\"Unable to acquire ACCESS_TOKEN.\");\r
+
+      }\r
+
+      \r\n"
+    language: text/javascript
+order: 1786428188236

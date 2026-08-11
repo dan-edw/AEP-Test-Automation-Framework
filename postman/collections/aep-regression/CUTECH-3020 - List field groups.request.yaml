@@ -1,0 +1,69 @@
+$kind: http-request
+name: CUTECH-3020 - List field groups
+url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/fieldgroups
+method: GET
+headers:
+  Accept: application/vnd.adobe.xed-id+json
+  Content-Type: application/json
+  Authorization: Bearer {{ACCESS_TOKEN}}
+  x-api-key: "{{API_KEY}}"
+  x-gw-ims-org-id: "{{IMS_ORG}}"
+  x-sandbox-name: "{{SANDBOX_NAME}}"
+pathVariables:
+  CONTAINER_ID: tenant
+scripts:
+  - type: beforeRequest
+    code: "/** Begin Adobe-provided Pre-Request Scripts **/\r
+
+      // Do not send HTTP Headers with empty variables, as Postman will send the literal variable name\r
+
+      pm.request.forEachHeader(header => {\r
+
+      \    if (header.value.startsWith(\"{{\") && header.value.endsWith(\"}}\")) {\r
+
+      \        if (!pm.variables.get(header.value.substring(2, header.value.length - 2))) { pm.request.headers.remove(header.key); }\r
+
+      \    }\r
+
+      });\r
+
+      \r
+
+      // Do not send HTTP URL Query Parameters with empty variables, as Postman will send the literal variable name\r
+
+      pm.request.url.query.remove(q => { \r
+
+      \    if (q.value.startsWith(\"{{\") && q.value.endsWith(\"}}\")) {\r
+
+      \        return !pm.variables.get(q.value.substring(2, q.value.length - 2));\r
+
+      \    } \r
+
+      });\r
+
+      /** End Adobe-provided Pre-Request Scripts **/"
+    language: text/javascript
+  - type: afterResponse
+    code: "pm.test(\"Status code is 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      pm.test(\"Response is JSON\",function () {\r
+
+      \    pm.response.to.be.json\r
+
+      });\r
+
+      pm.test(\"Results are an array\", function () {\r
+
+      \    const response = pm.response.json();\r
+
+      \r
+
+      \    pm.expect(response.results).to.be.an('array');\r
+
+      });"
+    language: text/javascript
+order: 1273865659216955
