@@ -75,6 +75,26 @@ jobs:
 
 
       # ----------------------------------------
+      # Authenticate Postman CLI
+      # ----------------------------------------
+      
+      - name: Authenticate Postman CLI
+        run: |
+         postman login --with-api-key "${{ secrets.POSTMAN_API_KEY }}"
+  
+      
+      # ----------------------------------------
+      # Inspect Postman files
+      # ----------------------------------------
+      
+      - name: Inspect Postman files
+        run: |
+         echo "=== Repository structure ==="
+         find postman -maxdepth 5 -type f | sort
+
+
+
+      # ----------------------------------------
       # 5. Select environment
       # ----------------------------------------
 
@@ -85,7 +105,7 @@ jobs:
 
           ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
 
-          echo "Running AEP API tests against: $ENVIRONMENT"
+          echo "Running AEP API Regression against: $ENVIRONMENT"
 
           echo "ENV_FILE=postman/environments/${ENVIRONMENT}.json" >> "$GITHUB_OUTPUT"
 
