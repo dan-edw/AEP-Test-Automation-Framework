@@ -1,4 +1,4 @@
-name: AEP API Tests
+name: AEP API Regression
 
 on:
 
@@ -29,7 +29,7 @@ jobs:
 
   test:
 
-    name: Run AEP API Tests
+    name: Run AEP API Regression
 
     runs-on: ubuntu-latest
 
@@ -44,39 +44,18 @@ jobs:
 
 
       # ----------------------------------------
-      # 2. Setup Node
-      # ----------------------------------------
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-
-      # ----------------------------------------
-      # 3. Install Postman CLI
+      # 2. Install Postman CLI
       # ----------------------------------------
 
       - name: Install Postman CLI
         shell: bash
         run: |
-          curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
+          curl -o- https://dl-cli.pstmn.io/install/linux64.sh | sh
           echo "$HOME/.postman/bin" >> "$GITHUB_PATH"
 
 
       # ----------------------------------------
-      # Inspect Postman CLI
-      # ----------------------------------------    
-      
-      - name: Inspect Postman CLI
-        run: |
-          postman --version
-          postman --help
-          postman collection --help
-
-
-      # ----------------------------------------
-      # 4. Verify Postman CLI
+      # 3. Verify Postman CLI
       # ----------------------------------------
 
       - name: Verify Postman CLI
@@ -85,17 +64,21 @@ jobs:
 
 
       # ----------------------------------------
-      # 5. Inspect Postman files
+      # 4. Inspect Postman files
       # ----------------------------------------
 
       - name: Inspect Postman files
         run: |
-          echo "=== Repository structure ==="
-          find postman -maxdepth 5 -type f | sort
+          echo "=== Postman files ==="
+          find postman -maxdepth 6 -type f | sort
+
+          echo ""
+          echo "=== Collection directory ==="
+          ls -la postman/collections/aep-regression
 
 
       # ----------------------------------------
-      # 6. Select environment
+      # 5. Select environment
       # ----------------------------------------
 
       - name: Select Postman Environment
@@ -110,13 +93,25 @@ jobs:
           ENV_FILE="postman/environments/${ENVIRONMENT}.json"
 
           if [ ! -f "$ENV_FILE" ]; then
-            echo "ERROR: Environment file not found: $ENV_FILE"
+            echo "ERROR: Environment file not found:"
+            echo "$ENV_FILE"
             exit 1
           fi
 
-          echo "Using environment file: $ENV_FILE"
+          echo "Using environment file:"
+          echo "$ENV_FILE"
 
           echo "ENV_FILE=$ENV_FILE" >> "$GITHUB_OUTPUT"
+
+
+      # ----------------------------------------
+      # 6. Validate Postman collection
+      # ----------------------------------------
+
+      - name: Validate Postman Collection
+        run: |
+          postman collection lint \
+            "postman/collections/aep-regression"
 
 
       # ----------------------------------------
@@ -130,7 +125,7 @@ jobs:
         run: |
 
           postman collection run \
-            "postman/collections/aep-regression.json" \
+            "postman/collections/aep-regression" \
             --environment "${{ steps.environment.outputs.ENV_FILE }}" \
             --reporters cli,junit \
             --reporter-junit-export "postman-results.xml"
