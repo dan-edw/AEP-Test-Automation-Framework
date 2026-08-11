@@ -101,4 +101,8 @@ jobs:
           if [ "${{ steps.postman.outputs.exit-code }}" != "0" ]; then
             echo "Postman API tests failed"
             exit 1
+<<<<<<< HEAD
           fi
+=======
+          fi
+>>>>>>> f080fc890834853606608f4d3855cf8e626c4116
