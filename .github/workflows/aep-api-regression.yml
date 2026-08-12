@@ -178,7 +178,7 @@ jobs:
       # 7. Run Postman collection
       # ----------------------------------------
 
-      - name: Run AEP API Tests
+      - name: Run AEP API Regression
         id: postman
         continue-on-error: true
         shell: bash
@@ -187,8 +187,7 @@ jobs:
           postman collection run \
           "postman/collections/aep-regression" \
           --environment "${{ steps.environment.outputs.ENV_FILE }}" \
-          --reporters cli,junit \
-          --reporter-junit-export "postman-results.xml"
+          --reporters cli
 
 
 
@@ -196,13 +195,13 @@ jobs:
       # 8. Upload Postman results
       # ----------------------------------------
 
-      - name: Upload Postman Results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: postman-results
-          path: postman-results.xml
-          retention-days: 7
+      #-name: Upload Postman Results
+      # if: always()
+      # uses: actions/upload-artifact@v4
+      # with:
+      #  name: postman-results
+      #  path: postman-results.xml
+      #  retention-days: 7
 
 
       # ----------------------------------------
