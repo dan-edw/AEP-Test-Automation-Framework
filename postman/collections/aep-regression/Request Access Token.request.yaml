@@ -1,6 +1,6 @@
 $kind: http-request
 name: Request Access Token
-url: https://{{IMS}}/ims/token/v2?grant_type=client_credentials&client_id={{API_KEY}}&client_secret={{CLIENT_SECRET}}&scope={{SCOPES}}
+url: https://{{IMS}}/ims/token/v2?grant_type=client_credentials&client_id={{AEP_CLIENT_ID}}&client_secret={{AEP_CLIENT_SECRET}}&scope={{AEP_SCOPE}}
 method: POST
 queryParams:
   grant_type: client_credentials

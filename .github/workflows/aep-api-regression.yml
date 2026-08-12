@@ -133,6 +133,12 @@ jobs:
             "name": "AEP CI Environment",
             "values": [
               {
+                "key": "IMS",
+                "value": "ims-na1.adobelogin.com",
+                "type": "default",
+                "enabled": true
+              },
+              {
                 "key": "AEP_CLIENT_ID",
                 "value": "$AEP_CLIENT_ID",
                 "type": "default",
