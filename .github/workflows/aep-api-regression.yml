@@ -321,7 +321,7 @@ jobs:
       
       
       # ----------------------------------------
-      # Check Xray JUnit file
+      # 12. Check Xray JUnit file
       # ----------------------------------------    
       
       - name: Check Xray JUnit file
@@ -348,7 +348,7 @@ jobs:
       
       
       # ----------------------------------------
-      # 12. Publish the Results to Xray
+      # 13. Publish the Results to Xray
       # ----------------------------------------
 
       - name: Publish Results to Xray
@@ -374,7 +374,7 @@ jobs:
       
       
       # ----------------------------------------
-      # 13. Generate Postman Test Summary
+      # 14. Generate Postman Test Summary
       # ----------------------------------------
           
       - name: Generate Postman Test Summary
@@ -431,7 +431,7 @@ jobs:
 
       
       # ----------------------------------------
-      # 14. Upload Postman results
+      # 15. Upload Postman results
       # ----------------------------------------
 
       - name: Upload Postman Results
@@ -446,7 +446,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 15. Check test result
+      # 16. Check test result
       # ----------------------------------------
 
       - name: Check Test Result
