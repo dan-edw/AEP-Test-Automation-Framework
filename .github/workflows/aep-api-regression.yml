@@ -214,7 +214,9 @@ jobs:
         env:
           AEP_CLIENT_ID: ${{ secrets.AEP_CLIENT_ID }}
           AEP_CLIENT_SECRET: ${{ secrets.AEP_CLIENT_SECRET }}
+          AEP_SCOPE: ${{ secrets.AEP_SCOPE }}
           AEP_IMS_ORG: ${{ secrets.AEP_IMS_ORG }}
+          AEP_SANDBOX_NAME: ${{ vars.AEP_SANDBOX_NAME }}
         run: |
           set -o pipefail
 
@@ -224,12 +226,16 @@ jobs:
             --reporters cli \
             2>&1 | tee postman-results-raw.txt
 
+            POSTMAN_EXIT_CODE=${PIPESTATUS[0]}
+
             # Create a sanitised report for upload
             sed \
               -e "s/${AEP_CLIENT_SECRET}/***REDACTED***/g" \
               -e "s/${AEP_CLIENT_ID}/***REDACTED***/g" \
               -e "s/${AEP_IMS_ORG}/***REDACTED***/g" \
               postman-results-raw.txt > postman-results.txt
+
+            exit $POSTMAN_EXIT_CODE
 
 
       # ----------------------------------------
