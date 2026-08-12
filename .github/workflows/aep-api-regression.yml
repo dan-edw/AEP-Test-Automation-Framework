@@ -38,8 +38,6 @@ jobs:
     environment: ${{ github.event.inputs.environment || 'dev' }}
     timeout-minutes: 30
 
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
 
@@ -72,7 +70,7 @@ jobs:
 
 
       # ----------------------------------------
-      # Authenticate Postman CLI
+      # 4. Authenticate Postman CLI
       # ----------------------------------------
 
       - name: Authenticate Postman CLI
@@ -93,7 +91,7 @@ jobs:
       
 
       # ----------------------------------------
-      # 4. Inspect Postman files
+      # 5. Inspect Postman files
       # ----------------------------------------
 
       - name: Inspect Postman files
@@ -107,7 +105,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 5. Prepare Postman Environment
+      # 6. Prepare Postman Environment
       # ----------------------------------------
 
       - name: Prepare Postman Environment
@@ -195,7 +193,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 6. Validate Postman collection
+      # 7. Validate Postman collection
       # ----------------------------------------
 
       - name: Validate Postman Collection
@@ -205,7 +203,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 7. Run Postman collection
+      # 8. Run Postman collection
       # ----------------------------------------
 
       - name: Run AEP API Regression
@@ -213,29 +211,98 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          set -o pipefail
 
           postman collection run \
           "postman/collections/aep-regression" \
           --environment "${{ steps.environment.outputs.ENV_FILE }}" \
-          --reporters cli
+          --reporters cli \
+          2>&1 | tee postman-results.txt
+
+          
+      # ----------------------------------------
+      # 9. Generate Postman Test Summary
+      # ----------------------------------------
+
+      - name: Generate Postman Test Summary
+        if: always()
+        shell: bash
+        run: |
+
+            echo "## 🧪 AEP API Test Execution Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            echo "| Metric | Result |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------:|" >> "$GITHUB_STEP_SUMMARY"
+
+            REQUESTS=$(grep -A10 "^| iterations" postman-results.txt \
+              | grep "| requests" \
+              | awk -F'|' '{gsub(/ /,"",$3); print $3}')
+
+            FAILED=$(grep -A10 "^| iterations" postman-results.txt \
+              | grep "| requests" \
+              | awk -F'|' '{gsub(/ /,"",$4); print $4}')
+
+            ASSERTIONS=$(grep -A10 "^| iterations" postman-results.txt \
+              | grep "| assertions" \
+              | awk -F'|' '{gsub(/ /,"",$3)} {print $3}')
+
+            ASSERTION_FAILED=$(grep -A10 "^| iterations" postman-results.txt \
+              | grep "| assertions" \
+              | awk -F'|' '{gsub(/ /,"",$4); print $4}')
+
+            if [ -z "$REQUESTS" ]; then
+              REQUESTS="N/A"
+            fi
+
+            if [ -z "$FAILED" ]; then
+              FAILED="N/A"
+            fi
+
+            if [ -z "$ASSERTIONS" ]; then
+              ASSERTIONS="N/A"
+            fi
+
+            if [ -z "$ASSERTION_FAILED" ]; then
+              ASSERTION_FAILED="N/A"
+            fi
+
+            echo "| 📋 Requests | $REQUESTS |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| ❌ Failed Requests | $FAILED |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 🔎 Assertions | $ASSERTIONS |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| ❌ Failed Assertions | $ASSERTION_FAILED |" >> "$GITHUB_STEP_SUMMARY"
+
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            echo "### 🌐 Execution Configuration" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            echo "| Setting | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|---------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Environment | ${{ github.event.inputs.environment || 'dev' }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Collection | aep-regression |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Framework | Postman CLI |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Runner | GitHub-hosted Ubuntu |" >> "$GITHUB_STEP_SUMMARY"
+
+      
+
+      
+      # ----------------------------------------
+      # 10. Upload Postman results
+      # ----------------------------------------
+
+      - name: Upload Postman Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+         name: postman-results
+         path: postman-results.txt
+         retention-days: 10
 
 
 
       # ----------------------------------------
-      # 8. Upload Postman results
-      # ----------------------------------------
-
-      #-name: Upload Postman Results
-      # if: always()
-      # uses: actions/upload-artifact@v4
-      # with:
-      #  name: postman-results
-      #  path: postman-results.xml
-      #  retention-days: 7
-
-
-      # ----------------------------------------
-      # 9. Check test result
+      # 11. Check test result
       # ----------------------------------------
 
       - name: Check Test Result
@@ -244,6 +311,6 @@ jobs:
         run: |
 
           if [ "${{ steps.postman.outcome }}" != "success" ]; then
-            echo "AEP API tests failed"
+            echo "AEP API Regression failed"
             exit 1
           fi
