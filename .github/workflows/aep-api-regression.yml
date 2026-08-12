@@ -188,6 +188,13 @@ jobs:
             ]
           }
           EOF
+          
+          echo "AEP_CLIENT_ID configured: $([ -n "$AEP_CLIENT_ID" ] && echo yes || echo no)"
+          echo "AEP_CLIENT_SECRET configured: $([ -n "$AEP_CLIENT_SECRET" ] && echo yes || echo no)"
+          echo "AEP_SCOPE configured: $([ -n "$AEP_SCOPE" ] && echo yes || echo no)"
+          echo "AEP_IMS_ORG configured: $([ -n "$AEP_IMS_ORG" ] && echo yes || echo no)"
+          echo "AEP_SANDBOX_NAME configured: $([ -n "$AEP_SANDBOX_NAME" ] && echo yes || echo no)"
+
 
           echo "ENV_FILE=postman/environments/ci-environment.json" >> "$GITHUB_OUTPUT"
 
