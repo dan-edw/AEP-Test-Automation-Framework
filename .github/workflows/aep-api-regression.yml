@@ -91,7 +91,7 @@ jobs:
 
       
       # ----------------------------------------
-      # Mask sensitive values
+      # 5. Mask sensitive values
       # ----------------------------------------
     
       - name: Mask sensitive values
@@ -108,7 +108,7 @@ jobs:
       
       
       # ----------------------------------------
-      # 5. Inspect Postman files
+      # 6. Inspect Postman files
       # ----------------------------------------
 
       - name: Inspect Postman files
@@ -122,7 +122,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 6. Prepare Postman Environment
+      # 7. Prepare Postman Environment
       # ----------------------------------------
 
       - name: Prepare Postman Environment
@@ -217,7 +217,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 7. Validate Postman collection
+      # 8. Validate Postman collection
       # ----------------------------------------
 
       - name: Validate Postman Collection
@@ -227,7 +227,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 8. Run Postman collection
+      # 9. Run Postman collection
       # ----------------------------------------
 
       - name: Run AEP API Regression
@@ -263,7 +263,53 @@ jobs:
 
 
       # ----------------------------------------
-      # 9. Generate JUnit XML for Xray
+      # 10. Authenticate with Xray Cloud
+      # ----------------------------------------
+      - name: Authenticate with Xray Cloud
+        if: always()
+        id: xray-auth
+        shell: bash
+        run: |
+          TOKEN=$(curl -s \
+            -H "Content-Type: application/json" \
+            -X POST \
+            https://xray.cloud.getxray.app/api/v2/authenticate \
+            -d '{
+              "client_id":"${{ secrets.XRAY_CLIENT_ID }}",
+              "client_secret":"${{ secrets.XRAY_CLIENT_SECRET }}"
+            }')
+
+          TOKEN=$(echo "$TOKEN" | tr -d '"')
+
+          echo "XRAY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+          echo "Authentication successful"
+      
+      
+      # ----------------------------------------
+      # 11. Publish the Results to Xray
+      # ----------------------------------------
+
+      - name: Publish Results to Xray
+        if: always()
+        shell: bash
+        run: |
+
+          RESPONSE=$(curl -s \
+           --fail-with-body \
+           -H "Authorization: Bearer $XRAY_TOKEN" \
+           -H "Content-Type: text/xml" \
+           --data @"test-results.xml" \
+           "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=${{ secrets.XRAY_PROJECT_KEY }}"
+          )
+
+          echo "===== XRAY RESPONSE ====="
+          echo "$RESPONSE"
+
+
+      
+      # ----------------------------------------
+      # 12. Generate JUnit XML for Xray
       # ----------------------------------------
 
       - name: Generate JUnit XML for Xray
@@ -278,7 +324,7 @@ jobs:
       
       
       # ----------------------------------------
-      # 10. Generate Postman Test Summary
+      # 13. Generate Postman Test Summary
       # ----------------------------------------
           
       - name: Generate Postman Test Summary
@@ -335,7 +381,7 @@ jobs:
 
       
       # ----------------------------------------
-      # 11. Upload Postman results
+      # 14. Upload Postman results
       # ----------------------------------------
 
       - name: Upload Postman Results
@@ -350,7 +396,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 12. Check test result
+      # 15. Check test result
       # ----------------------------------------
 
       - name: Check Test Result
