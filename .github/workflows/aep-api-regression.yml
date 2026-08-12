@@ -67,6 +67,7 @@ jobs:
       - name: Verify Postman CLI
         run: |
           postman --version
+          postman collection run --help
 
 
       # ----------------------------------------
@@ -229,6 +230,8 @@ jobs:
               -e "s/${AEP_CLIENT_ID}/***REDACTED***/g" \
               -e "s/${AEP_IMS_ORG}/***REDACTED***/g" \
               postman-results-raw.txt > postman-results.txt
+
+
 
       # ----------------------------------------
       # 9. Generate Postman Test Summary

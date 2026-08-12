@@ -1,5 +1,5 @@
 $kind: http-request
-name: CUTECH-3020 - List field groups
+name: CUTECH-2856 - List field groups
 url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/fieldgroups
 method: GET
 headers:
