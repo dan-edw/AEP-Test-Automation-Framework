@@ -211,25 +211,31 @@ jobs:
         id: postman
         continue-on-error: true
         shell: bash
-        env:
-          AEP_CLIENT_ID: ${{ secrets.AEP_CLIENT_ID }}
-          AEP_CLIENT_SECRET: ${{ secrets.AEP_CLIENT_SECRET }}
-          AEP_IMS_ORG: ${{ secrets.AEP_IMS_ORG }}
         run: |
-          set -o pipefail
-
           postman collection run \
             "postman/collections/aep-regression" \
             --environment "${{ steps.environment.outputs.ENV_FILE }}" \
-            --reporters cli \
-            2>&1 | tee postman-results-raw.txt
+            --reporters junit \
+            --reporter-junit-export "test-results.xml"
 
-            # Create a sanitised report for upload
-            sed \
-              -e "s/${AEP_CLIENT_SECRET}/***REDACTED***/g" \
-              -e "s/${AEP_CLIENT_ID}/***REDACTED***/g" \
-              -e "s/${AEP_IMS_ORG}/***REDACTED***/g" \
-              postman-results-raw.txt > postman-results.txt
+      # ----------------------------------------
+      # Inspect JUnit result
+      # ----------------------------------------
+      
+      
+      - name: Inspect JUnit result
+        if: always()
+        run: |
+          echo "=== JUnit result ==="
+
+          if [ -f "test-results.xml" ]; then
+            echo "test-results.xml exists"
+            cat test-results.xml
+          else
+            echo "ERROR: test-results.xml was not created"
+            exit 1
+          fi
+
 
 
 
