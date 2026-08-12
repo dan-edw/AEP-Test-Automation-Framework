@@ -211,36 +211,44 @@ jobs:
         id: postman
         continue-on-error: true
         shell: bash
+        env:
+          AEP_CLIENT_ID: ${{ secrets.AEP_CLIENT_ID }}
+          AEP_CLIENT_SECRET: ${{ secrets.AEP_CLIENT_SECRET }}
+          AEP_IMS_ORG: ${{ secrets.AEP_IMS_ORG }}
         run: |
+          set -o pipefail
+
           postman collection run \
             "postman/collections/aep-regression" \
             --environment "${{ steps.environment.outputs.ENV_FILE }}" \
-            --reporters junit \
-            --reporter-junit-export "test-results.xml"
+            --reporters cli \
+            2>&1 | tee postman-results-raw.txt
+
+            # Create a sanitised report for upload
+            sed \
+              -e "s/${AEP_CLIENT_SECRET}/***REDACTED***/g" \
+              -e "s/${AEP_CLIENT_ID}/***REDACTED***/g" \
+              -e "s/${AEP_IMS_ORG}/***REDACTED***/g" \
+              postman-results-raw.txt > postman-results.txt
+
 
       # ----------------------------------------
-      # Inspect JUnit result
+      # 9. Generate JUnit XML for Xray
       # ----------------------------------------
-      
-      
-      - name: Inspect JUnit result
+
+      - name: Generate JUnit XML for Xray
         if: always()
+        shell: bash
         run: |
-          echo "=== JUnit result ==="
+          node scripts/postman-to-junit.js
 
-          if [ -f "test-results.xml" ]; then
-            echo "test-results.xml exists"
-            cat test-results.xml
-          else
-            echo "ERROR: test-results.xml was not created"
-            exit 1
-          fi
+          echo "=== Generated JUnit XML ==="
+          cat test-results.xml
 
-
-
-
+      
+      
       # ----------------------------------------
-      # 9. Generate Postman Test Summary
+      # 10. Generate Postman Test Summary
       # ----------------------------------------
           
       - name: Generate Postman Test Summary
@@ -297,7 +305,7 @@ jobs:
 
       
       # ----------------------------------------
-      # 10. Upload Postman results
+      # 11. Upload Postman results
       # ----------------------------------------
 
       - name: Upload Postman Results
@@ -322,7 +330,7 @@ jobs:
 
 
       # ----------------------------------------
-      # 11. Check test result
+      # 12. Check test result
       # ----------------------------------------
 
       - name: Check Test Result
