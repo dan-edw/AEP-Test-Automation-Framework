@@ -6,7 +6,7 @@ headers:
   Accept: application/vnd.adobe.xed-id+json
   Content-Type: application/json
   Authorization: Bearer {{ACCESS_TOKEN}}
-  x-api-key: "{{API_KEY}}"
+  x-api-key: "{{AEP_CLIENT_ID}}"
   x-gw-ims-org-id: "{{IMS_ORG}}"
   x-sandbox-name: "{{SANDBOX_NAME}}"
 pathVariables:

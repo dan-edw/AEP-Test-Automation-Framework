@@ -64,6 +64,27 @@ jobs:
 
 
       # ----------------------------------------
+      # Authenticate Postman CLI
+      # ----------------------------------------
+
+      - name: Authenticate Postman CLI
+        shell: bash
+        env:
+         POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
+        run: |
+
+         if [ -z "$POSTMAN_API_KEY" ]; then
+           echo "ERROR: POSTMAN_API_KEY GitHub secret is not configured"
+           exit 1
+         fi
+
+         postman login --with-api-key "$POSTMAN_API_KEY"
+
+         echo "Postman CLI authentication successful"
+
+      
+
+      # ----------------------------------------
       # 4. Inspect Postman files
       # ----------------------------------------
 
@@ -78,14 +99,17 @@ jobs:
 
 
       # ----------------------------------------
-      # 5. Select environment
+      # 5. Prepare Postman Environment
       # ----------------------------------------
 
-      - name: Select Postman Environment
+      - name: Prepare Postman Environment
         id: environment
         shell: bash
+        env:
+          AEP_CLIENT_ID: ${{ secrets.AEP_CLIENT_ID }}
+          AEP_CLIENT_SECRET: ${{ secrets.AEP_CLIENT_SECRET }}
+          AEP_SCOPE: ${{ secrets.AEP_SCOPE }}
         run: |
-
           ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
 
           echo "Running AEP API Regression against: $ENVIRONMENT"
@@ -93,15 +117,47 @@ jobs:
           ENV_FILE="postman/environments/${ENVIRONMENT}.json"
 
           if [ ! -f "$ENV_FILE" ]; then
-            echo "ERROR: Environment file not found:"
-            echo "$ENV_FILE"
+            echo "ERROR: Environment template not found: $ENV_FILE"
             exit 1
           fi
 
-          echo "Using environment file:"
-          echo "$ENV_FILE"
+          echo "Using environment template: $ENV_FILE"
 
-          echo "ENV_FILE=$ENV_FILE" >> "$GITHUB_OUTPUT"
+          cat > postman/environments/ci-environment.json <<EOF
+          {
+            "id": "aep-ci-environment",
+            "name": "AEP CI Environment",
+            "values": [
+              {
+                "key": "AEP_CLIENT_ID",
+                "value": "$AEP_CLIENT_ID",
+                "type": "default",
+                "enabled": true
+              },
+              {
+                "key": "AEP_CLIENT_SECRET",
+                "value": "$AEP_CLIENT_SECRET",
+                "type": "secret",
+                "enabled": true
+              },
+              {
+                "key": "AEP_SCOPE",
+                "value": "$AEP_SCOPE",
+                "type": "default",
+                "enabled": true
+              },
+              {
+                "key": "ACCESS_TOKEN",
+                "value": "",
+                "type": "secret",
+                "enabled": true
+              }
+            ]
+          }
+          EOF
+
+          echo "ENV_FILE=postman/environments/ci-environment.json" >> "$GITHUB_OUTPUT"
+
 
 
       # ----------------------------------------
@@ -125,10 +181,11 @@ jobs:
         run: |
 
           postman collection run \
-            "postman/collections/aep-regression" \
-            --environment "${{ steps.environment.outputs.ENV_FILE }}" \
-            --reporters cli,junit \
-            --reporter-junit-export "postman-results.xml"
+          "postman/collections/aep-regression" \
+          --environment "${{ steps.environment.outputs.ENV_FILE }}" \
+          --reporters cli,junit \
+          --reporter-junit-export "postman-results.xml"
+
 
 
       # ----------------------------------------

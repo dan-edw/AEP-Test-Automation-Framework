@@ -1,0 +1,30 @@
+{
+  "id": "aep-dev",
+  "name": "AEP DEV",
+  "values": [
+    {
+      "key": "AEP_CLIENT_ID",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "AEP_CLIENT_SECRET",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "AEP_SCOPE",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "ACCESS_TOKEN",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    }
+  ]
+}
