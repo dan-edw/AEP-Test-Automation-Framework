@@ -263,7 +263,40 @@ jobs:
 
 
       # ----------------------------------------
-      # 10. Authenticate with Xray Cloud
+      # 10. Generate JUnit XML for Xray
+      # ----------------------------------------
+
+      - name: Generate JUnit XML for Xray
+        if: always()
+        shell: bash
+        run: |
+
+          echo "=== Generating JUnit XML ==="
+
+          node scripts/postman-to-junit.js
+
+          echo "=== Current directory ==="
+          pwd
+
+          echo "=== Generated files ==="
+          ls -la
+
+          if [ ! -f "test-results.xml" ]; then
+            echo "ERROR: test-results.xml was not created"
+            exit 1
+          fi
+
+          echo "=== JUnit XML successfully created ==="
+          ls -lh test-results.xml
+
+          echo "=== JUnit XML contents ==="
+          cat test-results.xml
+
+      
+      
+      
+      # ----------------------------------------
+      # 11. Authenticate with Xray Cloud
       # ----------------------------------------
       
       - name: Authenticate with Xray Cloud
@@ -315,7 +348,7 @@ jobs:
       
       
       # ----------------------------------------
-      # 11. Publish the Results to Xray
+      # 12. Publish the Results to Xray
       # ----------------------------------------
 
       - name: Publish Results to Xray
@@ -337,21 +370,6 @@ jobs:
 
           echo "===== XRAY RESPONSE ====="
           echo "$RESPONSE"
-
-
-      
-      # ----------------------------------------
-      # 12. Generate JUnit XML for Xray
-      # ----------------------------------------
-
-      - name: Generate JUnit XML for Xray
-        if: always()
-        shell: bash
-        run: |
-          node scripts/postman-to-junit.js
-
-          echo "=== Generated JUnit XML ==="
-          cat test-results.xml
 
       
       
