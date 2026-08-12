@@ -33,6 +33,10 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    # Use the selected GitHub environment.
+    # For push/PR, default to dev.
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
     steps:
 
       # ----------------------------------------
