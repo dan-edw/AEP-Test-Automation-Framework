@@ -214,10 +214,11 @@ jobs:
           set -o pipefail
 
           postman collection run \
-          "postman/collections/aep-regression" \
-          --environment "${{ steps.environment.outputs.ENV_FILE }}" \
-          --reporters cli \
-          2>&1 | tee postman-results.txt
+            "postman/collections/aep-regression" \
+            --environment "${{ steps.environment.outputs.ENV_FILE }}" \
+            --reporters cli \
+            2>&1 | tee postman-results.txt
+
 
           
       # ----------------------------------------
@@ -229,60 +230,68 @@ jobs:
         shell: bash
         run: |
 
-            echo "## 🧪 AEP API Test Execution Summary" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## 🧪 AEP API Test Execution Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-            echo "| Metric | Result |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|--------|-------:|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------:|" >> "$GITHUB_STEP_SUMMARY"
 
-            REQUESTS=$(grep -A10 "^| iterations" postman-results.txt \
-              | grep "| requests" \
-              | awk -F'|' '{gsub(/ /,"",$3); print $3}')
+          # Default values
+          REQUESTS="N/A"
+          FAILED_REQUESTS="N/A"
+          ASSERTIONS="N/A"
+          FAILED_ASSERTIONS="N/A"
 
-            FAILED=$(grep -A10 "^| iterations" postman-results.txt \
-              | grep "| requests" \
-              | awk -F'|' '{gsub(/ /,"",$4); print $4}')
+          # Parse the Postman CLI summary table.
+          # '|| true' prevents grep returning 1 when a value isn't found.
 
-            ASSERTIONS=$(grep -A10 "^| iterations" postman-results.txt \
-              | grep "| assertions" \
-              | awk -F'|' '{gsub(/ /,"",$3)} {print $3}')
+          REQUEST_LINE=$(grep "| requests" postman-results.txt 2>/dev/null || true)
+          ASSERTION_LINE=$(grep "| assertions" postman-results.txt 2>/dev/null || true)
 
-            ASSERTION_FAILED=$(grep -A10 "^| iterations" postman-results.txt \
-              | grep "| assertions" \
-              | awk -F'|' '{gsub(/ /,"",$4); print $4}')
+          if [ -n "$REQUEST_LINE" ]; then
 
-            if [ -z "$REQUESTS" ]; then
-              REQUESTS="N/A"
-            fi
+            REQUESTS=$(echo "$REQUEST_LINE" |
+              awk -F'|' '{gsub(/ /,"",$3); print $3}')
 
-            if [ -z "$FAILED" ]; then
-              FAILED="N/A"
-            fi
+            FAILED_REQUESTS=$(echo "$REQUEST_LINE" |
+              awk -F'|' '{gsub(/ /,"",$4); print $4}')
 
-            if [ -z "$ASSERTIONS" ]; then
-              ASSERTIONS="N/A"
-            fi
+          fi
 
-            if [ -z "$ASSERTION_FAILED" ]; then
-              ASSERTION_FAILED="N/A"
-            fi
+          if [ -n "$ASSERTION_LINE" ]; then
 
-            echo "| 📋 Requests | $REQUESTS |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| ❌ Failed Requests | $FAILED |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| 🔎 Assertions | $ASSERTIONS |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| ❌ Failed Assertions | $ASSERTION_FAILED |" >> "$GITHUB_STEP_SUMMARY"
+            ASSERTIONS=$(echo "$ASSERTION_LINE" |
+              awk -F'|' '{gsub(/ /,"",$3); print $3}')
 
-            echo "" >> "$GITHUB_STEP_SUMMARY"
+            FAILED_ASSERTIONS=$(echo "$ASSERTION_LINE" |
+              awk -F'|' '{gsub(/ /,"",$4); print $4}')
 
-            echo "### 🌐 Execution Configuration" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-            echo "| Setting | Value |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|---------|-------|" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Environment | ${{ github.event.inputs.environment || 'dev' }} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Collection | aep-regression |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Framework | Postman CLI |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Runner | GitHub-hosted Ubuntu |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 📋 Requests | $REQUESTS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ❌ Failed Requests | $FAILED_REQUESTS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🔎 Assertions | $ASSERTIONS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ❌ Failed Assertions | $FAILED_ASSERTIONS |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### 🌐 Execution Configuration" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "| Setting | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|-------|" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "| Environment | ${{ github.event.inputs.environment || 'dev' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Collection | aep-regression |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Framework | Postman CLI |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Runner | GitHub-hosted Ubuntu |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### 📄 Raw Postman Output" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The complete Postman CLI output is available in the workflow artifacts." >> "$GITHUB_STEP_SUMMARY"
+
 
       
 
@@ -314,3 +323,4 @@ jobs:
             echo "AEP API Regression failed"
             exit 1
           fi
+
