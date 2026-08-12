@@ -114,7 +114,7 @@ jobs:
           AEP_CLIENT_SECRET: ${{ secrets.AEP_CLIENT_SECRET }}
           AEP_SCOPE: ${{ secrets.AEP_SCOPE }}
           AEP_IMS_ORG: ${{ secrets.AEP_IMS_ORG }}
-          AEP_SANDBOX_NAME: ${{ secrets.AEP_SANDBOX_NAME }}
+          AEP_SANDBOX_NAME: ${{ vars.AEP_SANDBOX_NAME }}
         run: |
           ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
 
@@ -163,19 +163,19 @@ jobs:
                 "value": "$AEP_IMS_ORG",
                 "type": "secret",
                 "enabled": true
-              }
+              },
               {
                 "key": "AEP_SANDBOX_NAME",
                 "value": "$AEP_SANDBOX_NAME",
                 "type": "default",
                 "enabled": true
-              }
+              },
               {
                 "key": "CONTAINER_ID",
                 "value": "tenant",
                 "type": "default",
                 "enabled": true
-              }
+              },
               {
                 "key": "ACCESS_TOKEN",
                 "value": "",
