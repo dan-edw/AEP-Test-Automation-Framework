@@ -285,6 +285,9 @@ jobs:
           ls -lh postman-results-raw.txt
           ls -lh postman-results.txt
 
+          echo "=== Jira test keys after sanitisation ==="
+          grep -E '^Root ' postman-results.txt || true
+
           echo "=== Postman results available for downstream steps ==="
 
           # Do NOT exit 1 here.
