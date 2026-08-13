@@ -226,6 +226,7 @@ jobs:
             "postman/collections/aep-regression"
 
 
+      
       # ----------------------------------------
       # 9. Run Postman collection
       # ----------------------------------------
@@ -240,8 +241,11 @@ jobs:
           AEP_SCOPE: ${{ secrets.AEP_SCOPE }}
           AEP_IMS_ORG: ${{ secrets.AEP_IMS_ORG }}
           AEP_SANDBOX_NAME: ${{ vars.AEP_SANDBOX_NAME }}
+
         run: |
           set -o pipefail
+
+          echo "=== Running Postman collection ==="
 
           postman collection run \
             "postman/collections/aep-regression" \
@@ -249,17 +253,38 @@ jobs:
             --reporters cli \
             2>&1 | tee postman-results-raw.txt
 
-            POSTMAN_EXIT_CODE=${PIPESTATUS[0]}
+          POSTMAN_EXIT_CODE=${PIPESTATUS[0]}
 
-            # Create a sanitised report for upload
-            sed \
-              -e "s/${AEP_CLIENT_SECRET}/***REDACTED***/g" \
-              -e "s/${AEP_CLIENT_ID}/***REDACTED***/g" \
-              -e "s/${AEP_SCOPE}/***REDACTED***/g" \
-              -e "s/${AEP_IMS_ORG}/***REDACTED***/g" \
-              postman-results-raw.txt > postman-results.txt
+          echo "=== Postman exit code: $POSTMAN_EXIT_CODE ==="
 
-            exit $POSTMAN_EXIT_CODE
+          echo "=== Creating sanitised Postman report ==="
+
+          # Always create the report, regardless of Postman's exit code.
+          cp postman-results-raw.txt postman-results.txt
+
+          # Redact secrets only when they are non-empty.
+          if [ -n "$AEP_CLIENT_SECRET" ]; then
+            sed -i "s|${AEP_CLIENT_SECRET}|***REDACTED***|g" postman-results.txt
+          fi
+
+          if [ -n "$AEP_CLIENT_ID" ]; then
+            sed -i "s|${AEP_CLIENT_ID}|***REDACTED***|g" postman-results.txt
+          fi
+
+          if [ -n "$AEP_SCOPE" ]; then
+            sed -i "s|${AEP_SCOPE}|***REDACTED***|g" postman-results.txt
+          fi
+
+          if [ -n "$AEP_IMS_ORG" ]; then
+            sed -i "s|${AEP_IMS_ORG}|***REDACTED***|g" postman-results.txt
+          fi
+
+          echo "=== Sanitised report created ==="
+          ls -lh postman-results.txt
+
+          # Preserve Postman's actual result for the final workflow check.
+          exit "$POSTMAN_EXIT_CODE"  
+
 
 
       # ----------------------------------------
