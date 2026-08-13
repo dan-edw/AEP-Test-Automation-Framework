@@ -233,7 +233,7 @@ jobs:
 
       - name: Run AEP API Regression
         id: postman
-        continue-on-error: true
+        if: always()
         shell: bash
         env:
           AEP_CLIENT_ID: ${{ secrets.AEP_CLIENT_ID }}
@@ -249,7 +249,7 @@ jobs:
 
           postman collection run \
             "postman/collections/aep-regression" \
-            --environment "${{ steps.environment.outputs.ENV_FILE }}" \
+            --environment "postman/environments/ci-environment.json" \
             --reporters cli \
             2>&1 | tee postman-results-raw.txt
 
@@ -259,10 +259,8 @@ jobs:
 
           echo "=== Creating sanitised Postman report ==="
 
-          # Always create the report, regardless of Postman's exit code.
           cp postman-results-raw.txt postman-results.txt
 
-          # Redact secrets only when they are non-empty.
           if [ -n "$AEP_CLIENT_SECRET" ]; then
             sed -i "s|${AEP_CLIENT_SECRET}|***REDACTED***|g" postman-results.txt
           fi
@@ -280,10 +278,15 @@ jobs:
           fi
 
           echo "=== Sanitised report created ==="
+          ls -lh postman-results-raw.txt
           ls -lh postman-results.txt
 
-          # Preserve Postman's actual result for the final workflow check.
-          exit "$POSTMAN_EXIT_CODE"  
+          echo "=== Postman results available for downstream steps ==="
+
+          # Do NOT exit 1 here.
+          # We want JUnit/Xray/reporting to run even when Postman tests fail.
+          echo "POSTMAN_EXIT_CODE=$POSTMAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+  
 
 
 
@@ -295,16 +298,21 @@ jobs:
         if: always()
         shell: bash
         run: |
-
           echo "=== Generating JUnit XML ==="
 
+          if [ ! -f "postman-results.txt" ]; then
+            echo "ERROR: postman-results.txt does not exist"
+            echo "=== Current directory ==="
+            pwd
+            echo "=== Files ==="
+            ls -la
+            exit 1
+          fi
+
+          echo "=== Postman results found ==="
+          ls -lh postman-results.txt
+
           node scripts/postman-to-junit.js
-
-          echo "=== Current directory ==="
-          pwd
-
-          echo "=== Generated files ==="
-          ls -la
 
           if [ ! -f "test-results.xml" ]; then
             echo "ERROR: test-results.xml was not created"
@@ -312,12 +320,9 @@ jobs:
           fi
 
           echo "=== JUnit XML successfully created ==="
-          ls -lh test-results.xml
-
-          echo "=== JUnit XML contents ==="
           cat test-results.xml
 
-      
+
       
       
       # ----------------------------------------
@@ -478,9 +483,15 @@ jobs:
         if: always()
         shell: bash
         run: |
+          POSTMAN_EXIT_CODE="${{ steps.postman.outputs.POSTMAN_EXIT_CODE }}"
 
-          if [ "${{ steps.postman.outcome }}" != "success" ]; then
+          echo "Postman exit code: $POSTMAN_EXIT_CODE"
+
+          if [ "$POSTMAN_EXIT_CODE" != "0" ]; then
             echo "AEP API Regression failed"
             exit 1
           fi
+
+          echo "AEP API Regression passed"
+
 
