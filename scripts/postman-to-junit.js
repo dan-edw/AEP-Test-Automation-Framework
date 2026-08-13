@@ -4,37 +4,10 @@ const inputFile = 'postman-results.txt';
 const outputFile = 'test-results.xml';
 
 if (!fs.existsSync(inputFile)) {
-  throw new Error(`Input file not found: ${inputFile}`);
+  throw new Error(`Postman results file not found: ${inputFile}`);
 }
 
 const output = fs.readFileSync(inputFile, 'utf8');
-
-// Find Jira test key and request name.
-const requestMatch = output.match(
-  /Root\s+([A-Z]+-\d+)\s+-\s+([^\n\r]+)/
-);
-
-if (!requestMatch) {
-  throw new Error('Could not find Jira test key in Postman output');
-}
-
-const testKey = requestMatch[1];
-const testName = `${testKey} - ${requestMatch[2].trim()}`;
-
-// Find assertion totals.
-const assertionsMatch = output.match(
-  /\|\s+assertions\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|/
-);
-
-const assertions = assertionsMatch
-  ? Number(assertionsMatch[1])
-  : 0;
-
-const failedAssertions = assertionsMatch
-  ? Number(assertionsMatch[2])
-  : 0;
-
-const failures = failedAssertions > 0 ? 1 : 0;
 
 const escapeXml = (value) =>
   String(value)
@@ -44,47 +17,162 @@ const escapeXml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-let failureXml = '';
+/*
+* Find Postman request headings such as:
+*
+* Root CUTECH-2856 - List field groups
+* Root CUTECH-2860 - List Schemas
+* Root CUTECH-2865 - Retrieve a schema
+*
+* We deliberately capture only the request name on the Root line.
+*/
+const requestRegex =
+  /^Root\s+([A-Z][A-Z0-9_]*-\d+)\s+-\s+([^\r\n]+)/gm;
 
-if (failures > 0) {
-  failureXml = `
-    <failure
-      message="${escapeXml(
-        `${failedAssertions} assertion(s) failed`
-      )}">
-      ${escapeXml('Postman collection execution failed')}
-    </failure>`;
+const requests = [];
+
+let match;
+
+while ((match = requestRegex.exec(output)) !== null) {
+  requests.push({
+    key: match[1],
+    name: match[2].trim(),
+    start: match.index,
+  });
 }
 
-const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<testsuite
-  name="AEP API Regression"
-  tests="1"
-  failures="${failures}"
-  errors="0">
+if (requests.length === 0) {
+  throw new Error(
+    'Could not find any Jira test keys in Postman output'
+  );
+}
 
+/*
+* Add the end position for each request section.
+*
+* This allows us to analyse each Postman request independently
+* rather than treating the entire collection as one test.
+*/
+for (let i = 0; i < requests.length; i++) {
+  requests[i].end =
+    i + 1 < requests.length
+      ? requests[i + 1].start
+      : output.length;
+
+  requests[i].section = output.substring(
+    requests[i].start,
+    requests[i].end
+  );
+}
+
+/*
+* Determine whether an individual request failed.
+*
+* We primarily look for assertion failures inside that request's
+* section. We also recognise obvious HTTP failure responses.
+*/
+function analyseRequest(section) {
+  const assertionFailures = [
+    ...section.matchAll(
+      /AssertionError[\s\S]*?(?=\n\s*\d+\.\s+AssertionError|\s*$)/g
+    ),
+  ];
+
+  const hasAssertionFailure =
+    assertionFailures.length > 0;
+
+  const hasHttpFailure =
+    /\[(?:4\d\d|5\d\d)\s+[^\]]+\]/.test(section);
+
+  const failed =
+    hasAssertionFailure || hasHttpFailure;
+
+  let failureMessage = '';
+
+  if (hasAssertionFailure) {
+    const firstFailure = assertionFailures[0][0]
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    failureMessage = firstFailure;
+  } else if (hasHttpFailure) {
+    const httpFailure = section.match(
+      /\[(?:4\d\d|5\d\d)\s+[^\]]+\]/
+    );
+
+    failureMessage = httpFailure
+      ? `HTTP request failed: ${httpFailure[0]}`
+      : 'HTTP request failed';
+  }
+
+  return {
+    failed,
+    failureMessage,
+  };
+}
+
+/*
+* Build JUnit testcase XML for every Jira test.
+*/
+const testCases = requests.map((request) => {
+  const result = analyseRequest(request.section);
+
+  let testcase = `
   <testcase
-    name="${escapeXml(testName)}"
+    name="${escapeXml(`${request.key} - ${request.name}`)}"
     classname="AEP API Regression">
 
     <properties>
       <property
         name="test_key"
-        value="${escapeXml(testKey)}"/>
-    </properties>
+        value="${escapeXml(request.key)}"/>
+    </properties>`;
 
-${failureXml}
+  if (result.failed) {
+    testcase += `
+    <failure
+      message="${escapeXml(
+        result.failureMessage || 'Postman test failed'
+      )}">
+${escapeXml(
+  result.failureMessage || 'Postman test failed'
+)}
+    </failure>`;
+  }
 
-  </testcase>
+  testcase += `
+  </testcase>`;
 
+  return testcase;
+});
+
+/*
+* Collection-level totals.
+*/
+const totalTests = requests.length;
+
+const failedTests = requests.filter((request) => {
+  return analyseRequest(request.section).failed;
+}).length;
+
+const passedTests = totalTests - failedTests;
+
+/*
+* Generate the final JUnit document.
+*/
+const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuite
+  name="AEP API Regression"
+  tests="${totalTests}"
+  failures="${failedTests}"
+  errors="0">
+${testCases.join('\n')}
 </testsuite>
 `;
 
 fs.writeFileSync(outputFile, xml);
 
 console.log(`JUnit XML created: ${outputFile}`);
-console.log(`Test key: ${testKey}`);
-console.log(`Test name: ${testName}`);
-console.log(`Assertions: ${assertions}`);
-console.log(`Failed assertions: ${failedAssertions}`);
-console.log(`Tests failed: ${failures}`);
+console.log(`Tests found: ${totalTests}`);
+console.log(`Tests passed: ${passedTests}`);
+console.log(`Tests failed: ${failedTests}`);
