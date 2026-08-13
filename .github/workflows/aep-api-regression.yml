@@ -247,6 +247,8 @@ jobs:
 
           echo "=== Running Postman collection ==="
 
+          set +e
+
           postman collection run \
             "postman/collections/aep-regression" \
             --environment "postman/environments/ci-environment.json" \
@@ -254,6 +256,8 @@ jobs:
             2>&1 | tee postman-results-raw.txt
 
           POSTMAN_EXIT_CODE=${PIPESTATUS[0]}
+
+          set -e
 
           echo "=== Postman exit code: $POSTMAN_EXIT_CODE ==="
 
