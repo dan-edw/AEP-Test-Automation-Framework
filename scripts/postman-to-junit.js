@@ -363,14 +363,18 @@ const testcaseXml = testCases
   .map((test) => {
     let xml = `
   <testcase
-    name="${escapeXml(`${test.key} - ${test.name}`)}"
+    name="${escapeXml(test.key)}"
     classname="AEP API Regression">
 
     <properties>
       <property
         name="test_key"
         value="${escapeXml(test.key)}"/>
+      <property
+        name="test_name"
+        value="${escapeXml(test.name)}"/>
     </properties>`;
+
 
     if (test.error) {
       xml += `
