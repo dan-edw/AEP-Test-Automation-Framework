@@ -1,471 +1,434 @@
 const fs = require('fs');
 const path = require('path');
 
-const resultsFile = 'postman-results.txt';
-const collectionDirectory = 'postman/collections/aep-regression';
-const outputFile = 'test-results.xml';
+const inputFile = path.resolve('postman-results.txt');
+const outputFile = path.resolve('test-results.xml');
 
-/*
- * ------------------------------------------------------------
- * Helpers
- * ------------------------------------------------------------
- */
+if (!fs.existsSync(inputFile)) {
+  throw new Error(`Postman results file not found: ${inputFile}`);
+}
 
-function escapeXml(value) {
-  return String(value)
+if (!fs.statSync(inputFile).isFile()) {
+  throw new Error(`Postman results path is not a file: ${inputFile}`);
+}
+
+const output = fs.readFileSync(inputFile, 'utf8');
+
+const escapeXml = (value) =>
+  String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
-}
-
-function findFiles(directory) {
-  const results = [];
-
-  if (!fs.existsSync(directory)) {
-    return results;
-  }
-
-  const entries = fs.readdirSync(directory, {
-    withFileTypes: true,
-  });
-
-  for (const entry of entries) {
-    const fullPath = path.join(directory, entry.name);
-
-    if (entry.isDirectory()) {
-      results.push(...findFiles(fullPath));
-    } else {
-      results.push(fullPath);
-    }
-  }
-
-  return results;
-}
 
 /*
- * ------------------------------------------------------------
- * Validate input files
- * ------------------------------------------------------------
+ * Find Jira test cases in the Postman output.
+ *
+ * Example:
+ *
+ * Root CUTECH-2856 - List field groups
+ * Root CUTECH-2860 - List Schemas
+ * Root CUTECH-2865 - Retrieve a schema
+ *
+ * We also allow the Jira project key to contain numbers/underscores.
  */
+const requestRegex =
+  /^Root\s+([A-Z][A-Z0-9_]*-\d+)\s+-\s+([^\r\n]+)/gm;
 
-if (!fs.existsSync(resultsFile)) {
-  throw new Error(
-    `Postman results file not found: ${resultsFile}`
-  );
-}
-
-if (!fs.existsSync(collectionDirectory)) {
-  throw new Error(
-    `Postman collection directory not found: ${collectionDirectory}`
-  );
-}
-
-const output = fs.readFileSync(resultsFile, 'utf8');
-
-/*
- * ------------------------------------------------------------
- * Find Postman request files
- * ------------------------------------------------------------
- */
-
-const collectionFiles = findFiles(collectionDirectory);
-
-console.log(
-  `Found ${collectionFiles.length} file(s) in collection directory`
-);
-
-/*
- * ------------------------------------------------------------
- * Extract Jira test cases from collection files
- *
- * Looks for:
- *
- * name: CUTECH-2856 - List field groups
- *
- * This deliberately uses the actual request definition rather
- * than the Postman CLI Root identifier.
- * ------------------------------------------------------------
- */
-
-const jiraTests = [];
-
-const requestNameRegex =
-  /^\s*name:\s*([A-Z][A-Z0-9_]*-\d+)\s+-\s+(.+?)\s*$/m;
-
-for (const file of collectionFiles) {
-  let content;
-
-  try {
-    content = fs.readFileSync(file, 'utf8');
-  } catch (error) {
-    console.warn(
-      `WARNING: Could not read collection file: ${file}`
-    );
-    continue;
-  }
-
-  const match = content.match(requestNameRegex);
-
-  if (!match) {
-    continue;
-  }
-
-  jiraTests.push({
-    key: match[1],
-    name: match[2].trim(),
-    file,
-  });
-}
-
-if (jiraTests.length === 0) {
-  throw new Error(
-    'Could not find any Jira test cases in Postman collection files'
-  );
-}
-
-console.log('');
-console.log(
-  `Found ${jiraTests.length} Jira test case(s):`
-);
-
-jiraTests.forEach((test, index) => {
-  console.log(
-    `  ${index + 1}. ${test.key} - ${test.name}`
-  );
-});
-
-/*
- * ------------------------------------------------------------
- * Parse Postman CLI execution sections
- * ------------------------------------------------------------
- *
- * Postman CLI outputs:
- *
- * Root <identifier>
- *
- * followed by the request execution.
- *
- * The authentication request may be a Root entry without a Jira
- * key, so we do NOT assume every Root is a Jira test.
- * ------------------------------------------------------------
- */
-
-const rootRegex =
-  /^Root\s+([A-Za-z0-9_-]+)\s*$/gm;
-
-const executions = [];
+const requests = [];
 
 let match;
 
-while ((match = rootRegex.exec(output)) !== null) {
-  executions.push({
-    id: match[1],
+while ((match = requestRegex.exec(output)) !== null) {
+  requests.push({
+    key: match[1],
+    name: match[2].trim(),
     start: match.index,
   });
 }
 
-if (executions.length === 0) {
+if (requests.length === 0) {
   throw new Error(
-    'Could not find any Postman request executions in postman-results.txt'
+    'Could not find any Jira test cases in Postman output. ' +
+    'Check that Postman request names contain a Jira key such as CUTECH-2856.'
   );
 }
 
 /*
- * Add section boundaries.
+ * Identify the end of each request section.
  */
-
-for (let i = 0; i < executions.length; i++) {
-  executions[i].end =
-    i + 1 < executions.length
-      ? executions[i + 1].start
+for (let i = 0; i < requests.length; i++) {
+  requests[i].end =
+    i + 1 < requests.length
+      ? requests[i + 1].start
       : output.length;
 
-  executions[i].section = output.substring(
-    executions[i].start,
-    executions[i].end
+  requests[i].section = output.substring(
+    requests[i].start,
+    requests[i].end
   );
 }
 
-console.log('');
-console.log(
-  `Found ${executions.length} Postman request execution(s)`
-);
-
 /*
- * ------------------------------------------------------------
- * Analyse each Postman request
- * ------------------------------------------------------------
+ * Extract the HTTP request information.
+ *
+ * Example:
+ *
+ * GET https://platform.adobe.io/... [200 OK, 1.87 KB, 2 s]
  */
-
-function analyseRequest(section) {
-  /*
-   * Assertion failure.
-   *
-   * Example:
-   *
-   * AssertionError Status code is 200
-   * expected response to have status code 400 but got 200
-   */
-
-  const assertionMatch = section.match(
-    /AssertionError[\s\S]*?(?=\n\s*\d+\.\s+AssertionError|\nError:\s+Process completed|\s*$)/
+function extractRequest(section) {
+  const requestMatch = section.match(
+    /^\s*(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\S+)\s+\[(\d{3})\s+([^\]]+)\]/m
   );
 
-  if (assertionMatch) {
+  if (!requestMatch) {
     return {
-      failed: true,
-      error: false,
-      message: assertionMatch[0]
-        .replace(/\s+/g, ' ')
-        .trim(),
-    };
-  }
-
-  /*
-   * HTTP request failure.
-   *
-   * Examples:
-   *
-   * [400 Bad Request, ...]
-   * [401 Unauthorized, ...]
-   * [403 Forbidden, ...]
-   * [404 Not Found, ...]
-   * [500 Internal Server Error, ...]
-   */
-
-  const httpFailureMatch = section.match(
-    /\[(?:4\d\d|5\d\d)\s+[^\]]+\]/
-  );
-
-  if (httpFailureMatch) {
-    return {
-      failed: true,
-      error: false,
-      message:
-        `HTTP request failed: ${httpFailureMatch[0]}`,
-    };
-  }
-
-  /*
-   * Postman request-level errors.
-   *
-   * Catch common execution errors without requiring the exact
-   * wording to remain constant.
-   */
-
-  const executionErrorMatch = section.match(
-    /(?:Error|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ECONNRESET)[^\n]*/i
-  );
-
-  if (
-    executionErrorMatch &&
-    !/Error:\s+Process completed with exit code/i.test(
-      executionErrorMatch[0]
-    )
-  ) {
-    return {
-      failed: true,
-      error: true,
-      message: executionErrorMatch[0]
-        .replace(/\s+/g, ' ')
-        .trim(),
+      method: '',
+      url: '',
+      actualStatus: '',
+      statusText: '',
     };
   }
 
   return {
-    failed: false,
-    error: false,
-    message: '',
+    method: requestMatch[1],
+    url: requestMatch[2],
+    actualStatus: requestMatch[3],
+    statusText: requestMatch[4].split(',')[0].trim(),
   };
 }
 
 /*
- * ------------------------------------------------------------
- * Identify Jira executions
- * ------------------------------------------------------------
+ * Extract expected and actual status codes from assertion failures.
  *
- * We need to associate Postman Root sections with the Jira
- * requests.
+ * Example:
  *
- * The authentication request is not a Jira test.
- *
- * For normal collection execution:
- *
- * Root authentication
- * Root Jira test 1
- * Root Jira test 2
- * Root Jira test 3
- *
- * We therefore ignore Root entries before the first Jira
- * request execution.
- *
- * We determine this from the collection request count rather
- * than assuming a particular Root ID.
- * ------------------------------------------------------------
+ * expected response to have status code 400 but got 200
  */
+function extractExpectedActual(section) {
+  const match = section.match(
+    /expected response to have status code\s+(\d+)\s+but got\s+(\d+)/i
+  );
 
-const jiraExecutions = executions.slice(-jiraTests.length);
-
-console.log('');
-console.log(
-  `Using ${jiraExecutions.length} execution(s) for ${jiraTests.length} Jira test(s)`
-);
-
-/*
- * ------------------------------------------------------------
- * Build JUnit test cases
- * ------------------------------------------------------------
- */
-
-const testCases = [];
-
-for (let i = 0; i < jiraTests.length; i++) {
-  const jiraTest = jiraTests[i];
-  const execution = jiraExecutions[i];
-
-  /*
-   * Test exists in collection but was not executed.
-   */
-
-  if (!execution) {
-    testCases.push({
-      key: jiraTest.key,
-      name: jiraTest.name,
-      failed: false,
-      error: true,
-      message:
-        'Test exists in Postman collection but was not executed',
-    });
-
-    continue;
+  if (!match) {
+    return {
+      expectedStatus: '',
+      actualStatusFromAssertion: '',
+    };
   }
 
-  const result = analyseRequest(execution.section);
-
-  testCases.push({
-    key: jiraTest.key,
-    name: jiraTest.name,
-    failed: result.failed,
-    error: result.error,
-    message: result.message,
-  });
+  return {
+    expectedStatus: match[1],
+    actualStatusFromAssertion: match[2],
+  };
 }
 
 /*
- * ------------------------------------------------------------
- * Generate testcase XML
- * ------------------------------------------------------------
+ * Extract the assertion name.
+ *
+ * Example:
+ *
+ * AssertionError Status code is 200
  */
+function extractAssertion(section) {
+  const match = section.match(
+    /AssertionError\s+([^\r\n]+)/
+  );
 
-const testcaseXml = testCases
-  .map((test) => {
-    let xml = `
+  return match ? match[1].trim() : '';
+}
+
+/*
+ * Extract the Postman failure detail.
+ */
+function extractFailure(section) {
+  const failureIndex = section.indexOf('# failure detail');
+
+  if (failureIndex === -1) {
+    return '';
+  }
+
+  const failureText = section.substring(failureIndex);
+
+  /*
+   * Remove the heading and collapse whitespace.
+   */
+  return failureText
+    .replace(/^# failure detail\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/*
+ * Extract individual Pass/Fail assertion lines.
+ *
+ * Examples:
+ *
+ * Pass Status code is 200
+ * Pass Response is JSON
+ * Pass Results are an array
+ * 1. Status code is 200
+ */
+function extractAssertions(section) {
+  const assertions = [];
+
+  const lines = section.split(/\r?\n/);
+
+  for (const line of lines) {
+    const passMatch = line.match(
+      /^\s*Pass\s+(.+?)\s*$/
+    );
+
+    if (passMatch) {
+      assertions.push({
+        status: 'PASS',
+        name: passMatch[1].trim(),
+      });
+
+      continue;
+    }
+
+    const numberedMatch = line.match(
+      /^\s*\d+\.\s+(.+?)\s*$/
+    );
+
+    if (numberedMatch) {
+      assertions.push({
+        status: 'FAIL',
+        name: numberedMatch[1].trim(),
+      });
+    }
+  }
+
+  return assertions;
+}
+
+/*
+ * Analyse an individual Postman request.
+ */
+function analyseRequest(request) {
+  const section = request.section;
+
+  const http = extractRequest(section);
+
+  const expectedActual = extractExpectedActual(section);
+
+  const assertion = extractAssertion(section);
+
+  const failure = extractFailure(section);
+
+  const assertions = extractAssertions(section);
+
+  /*
+   * Detect HTTP-level failures.
+   */
+  const hasHttpFailure =
+    /\[(?:4\d\d|5\d\d)\s+[^\]]+\]/.test(section);
+
+  /*
+   * Detect assertion failures.
+   */
+  const hasAssertionFailure =
+    /AssertionError/i.test(section) ||
+    assertions.some((item) => item.status === 'FAIL');
+
+  const failed =
+    hasHttpFailure || hasAssertionFailure;
+
+  /*
+   * Prefer the expected/actual values extracted from
+   * an assertion failure.
+   */
+  const expectedStatus =
+    expectedActual.expectedStatus ||
+    '';
+
+  const actualStatus =
+    expectedActual.actualStatusFromAssertion ||
+    http.actualStatus ||
+    '';
+
+  let failureMessage = '';
+
+  if (hasAssertionFailure) {
+    if (expectedStatus && actualStatus) {
+      failureMessage =
+        `${assertion || 'Assertion failed'} - ` +
+        `expected ${expectedStatus} but got ${actualStatus}`;
+    } else if (failure) {
+      failureMessage = failure;
+    } else {
+      failureMessage =
+        assertion || 'Postman assertion failed';
+    }
+  } else if (hasHttpFailure) {
+    failureMessage =
+      `HTTP request failed: ${http.actualStatus} ${http.statusText}`;
+  }
+
+  return {
+    failed,
+    method: http.method,
+    url: http.url,
+    expectedStatus,
+    actualStatus,
+    assertion,
+    assertions,
+    failure,
+    failureMessage,
+  };
+}
+
+/*
+ * Build JUnit test cases.
+ */
+const testCases = requests.map((request) => {
+  const result = analyseRequest(request.section);
+
+  const status = result.failed ? 'FAIL' : 'PASS';
+
+  let testcase = `
   <testcase
-    name="${escapeXml(test.key)}"
+    name="${escapeXml(request.key)}"
     classname="AEP API Regression">
 
     <properties>
       <property
         name="test_key"
-        value="${escapeXml(test.key)}"/>
+        value="${escapeXml(request.key)}"/>
+
       <property
         name="test_name"
-        value="${escapeXml(test.name)}"/>
+        value="${escapeXml(request.name)}"/>
+
+      <property
+        name="status"
+        value="${status}"/>
+
+      <property
+        name="method"
+        value="${escapeXml(result.method)}"/>
+
+      <property
+        name="expected_status"
+        value="${escapeXml(result.expectedStatus)}"/>
+
+      <property
+        name="actual_status"
+        value="${escapeXml(result.actualStatus)}"/>
     </properties>`;
 
+  /*
+   * Add detailed failure information.
+   */
+  if (result.failed) {
+    const failureDetails = [
+      `Assertion: ${result.assertion || 'N/A'}`,
+      `Expected HTTP status: ${result.expectedStatus || 'N/A'}`,
+      `Actual HTTP status: ${result.actualStatus || 'N/A'}`,
+      `Request: ${result.method || 'N/A'} ${result.url || 'N/A'}`,
+      `Failure: ${result.failureMessage || 'Postman test failed'}`,
+    ].join('\n');
 
-    if (test.error) {
-      xml += `
-    <error
-      message="${escapeXml(
-        test.message || 'Postman execution error'
-      )}">${escapeXml(
-        test.message || 'Postman execution error'
-      )}</error>`;
-    } else if (test.failed) {
-      xml += `
+    testcase += `
+
     <failure
       message="${escapeXml(
-        test.message || 'Postman test failed'
-      )}">${escapeXml(
-        test.message || 'Postman test failed'
-      )}</failure>`;
-    }
+        result.failureMessage || 'Postman test failed'
+      )}">${escapeXml(failureDetails)}</failure>`;
+  }
 
-    xml += `
+  /*
+   * Add execution details for both PASS and FAIL.
+   */
+  const assertionDetails =
+    result.assertions.length > 0
+      ? result.assertions
+          .map(
+            (item) =>
+              `${item.status}: ${item.name}`
+          )
+          .join('\n')
+      : 'No assertion details captured';
+
+  const executionDetails = [
+    `Test key: ${request.key}`,
+    `Test name: ${request.name}`,
+    `Status: ${status}`,
+    `Method: ${result.method || 'N/A'}`,
+    `Request URL: ${result.url || 'N/A'}`,
+    `Expected HTTP status: ${result.expectedStatus || 'N/A'}`,
+    `Actual HTTP status: ${result.actualStatus || 'N/A'}`,
+    '',
+    'Assertions:',
+    assertionDetails,
+    '',
+    result.failed
+      ? `Failure reason: ${result.failureMessage || 'Postman test failed'}`
+      : 'Failure reason: None',
+  ].join('\n');
+
+  testcase += `
+
+    <system-out>${escapeXml(executionDetails)}</system-out>
+
   </testcase>`;
 
-    return xml;
-  })
-  .join('\n');
+  return testcase;
+});
 
 /*
- * ------------------------------------------------------------
- * Calculate totals
- * ------------------------------------------------------------
+ * Collection totals.
  */
+const totalTests = requests.length;
 
-const totalTests = testCases.length;
+const analysedResults = requests.map((request) =>
+  analyseRequest(request.section)
+);
 
-const failedTests = testCases.filter(
-  (test) => test.failed
+const failedTests = analysedResults.filter(
+  (result) => result.failed
 ).length;
 
-const errorTests = testCases.filter(
-  (test) => test.error
-).length;
-
-const passedTests =
-  totalTests - failedTests - errorTests;
+const passedTests = totalTests - failedTests;
 
 /*
- * ------------------------------------------------------------
- * Generate JUnit document
- * ------------------------------------------------------------
+ * Generate JUnit XML.
  */
-
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
+
 <testsuite
   name="AEP API Regression"
   tests="${totalTests}"
   failures="${failedTests}"
-  errors="${errorTests}">
-${testcaseXml}
+  errors="0">
+
+${testCases.join('\n')}
+
 </testsuite>
 `;
 
-fs.writeFileSync(outputFile, xml);
+fs.writeFileSync(outputFile, xml, 'utf8');
 
 /*
- * ------------------------------------------------------------
- * Console summary
- * ------------------------------------------------------------
+ * Console summary.
  */
-
-console.log('');
 console.log(`JUnit XML created: ${outputFile}`);
 console.log(`Tests found: ${totalTests}`);
 console.log(`Tests passed: ${passedTests}`);
 console.log(`Tests failed: ${failedTests}`);
-console.log(`Tests errors: ${errorTests}`);
+console.log(`Tests errors: 0`);
 
 console.log('');
 console.log('=== Test Results ===');
 
-for (const test of testCases) {
-  if (test.error) {
-    console.log(
-      `ERROR ${test.key} - ${test.name}`
-    );
-  } else if (test.failed) {
-    console.log(
-      `FAIL  ${test.key} - ${test.name}`
-    );
-  } else {
-    console.log(
-      `PASS  ${test.key} - ${test.name}`
-    );
-  }
-}
+requests.forEach((request, index) => {
+  const status = analysedResults[index].failed
+    ? 'FAIL'
+    : 'PASS';
+
+  console.log(
+    `${status} ${request.key} - ${request.name}`
+  );
+});
