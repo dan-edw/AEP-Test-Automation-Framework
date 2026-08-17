@@ -389,6 +389,7 @@ jobs:
       # ----------------------------------------
 
       - name: Publish Results to Xray
+        id: xray-publish
         if: always()
         shell: bash
         run: |
@@ -407,6 +408,78 @@ jobs:
 
           echo "===== XRAY RESPONSE ====="
           echo "$RESPONSE"
+
+          XRAY_EXECUTION_KEY=$(echo "$RESPONSE" | node -e "
+          let data='';
+          process.stdin.on('data', chunk => data += chunk);
+          process.stdin.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              console.log(json.key || '');
+            } catch {
+              console.log('');
+            }
+          });
+          ")
+
+          echo "=== Xray Test Execution ==="
+          echo "Key: $XRAY_EXECUTION_KEY"
+
+          echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
+
+
+      
+      # ----------------------------------------
+      # Diagnostic: inspect Xray Test Execution
+      # ----------------------------------------
+
+      - name: Diagnose Xray Test Execution
+        if: always()
+        shell: bash
+        env:
+          XRAY_TOKEN: ${{ secrets.XRAY_TOKEN }}
+          XRAY_EXECUTION_KEY: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_KEY }}
+
+        run: |
+
+          set -e
+
+          echo "=== Xray Diagnostic ==="
+
+          echo "Execution key: $XRAY_EXECUTION_KEY"
+
+          if [ -z "$XRAY_EXECUTION_KEY" ]; then
+            echo "ERROR: Xray execution key was not returned"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== Querying Xray Test Execution ==="
+
+          RESPONSE=$(curl -s \
+           -H "Authorization: Bearer $XRAY_TOKEN" \
+           -H "Content-Type: application/json" \
+           "https://xray.cloud.getxray.app/api/v2/testexecutions/$XRAY_EXECUTION_KEY")
+
+          echo "=== Xray Test Execution Response ==="
+
+          echo "$RESPONSE" | jq .
+
+          echo ""
+          echo "=== Looking for Test Runs ==="
+
+          echo "$RESPONSE" | jq '
+           .. |
+           objects |
+           select(
+            has("testKey") or
+            has("testStatus") or
+            has("status") or
+            has("comment") or
+            has("actualResult")
+           )
+          ' || true
+
 
       
       
