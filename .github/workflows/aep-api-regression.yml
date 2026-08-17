@@ -430,10 +430,10 @@ jobs:
 
       
       # ----------------------------------------
-      # Diagnostic: inspect Xray Test Execution
+      # Diagnostic: inspect Xray Test Runs
       # ----------------------------------------
 
-      - name: Diagnose Xray Test Execution
+      - name: Diagnose Xray Test Runs
         if: always()
         shell: bash
         env:
@@ -444,7 +444,7 @@ jobs:
 
           set +e
 
-          echo "=== Xray Diagnostic ==="
+          echo "=== Xray Test Run Diagnostic ==="
           echo "Execution key: $XRAY_EXECUTION_KEY"
 
           if [ -z "$XRAY_EXECUTION_KEY" ]; then
@@ -453,55 +453,99 @@ jobs:
           fi
 
           echo ""
-          echo "=== Querying Xray ==="
+          echo "=== Getting Jira issue ID for Test Execution ==="
 
-          HTTP_CODE=$(curl -s \
-            -o xray-diagnostic-response.txt \
-            -w "%{http_code}" \
+          JIRA_RESPONSE=$(curl -s \
             -H "Authorization: Bearer $XRAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://xray.cloud.getxray.app/api/v2/testexecutions/$XRAY_EXECUTION_KEY")
+            -H "Accept: application/json" \
+            "https://ifl-uat.atlassian.net/rest/api/2/issue/$XRAY_EXECUTION_KEY")
 
-          echo "HTTP status: $HTTP_CODE"
+          echo "$JIRA_RESPONSE" | jq .
 
-          echo ""
-          echo "=== Raw Xray Response ==="
-
-          cat xray-diagnostic-response.txt
+          TEST_EXEC_ISSUE_ID=$(echo "$JIRA_RESPONSE" | jq -r '.id // empty')
 
           echo ""
+          echo "Test Execution issue ID: $TEST_EXEC_ISSUE_ID"
 
-          echo "=== Response Headers / Content Type ==="
-
-          curl -sI \
-            -H "Authorization: Bearer $XRAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://xray.cloud.getxray.app/api/v2/testexecutions/$XRAY_EXECUTION_KEY" \
-            | grep -Ei "HTTP/|content-type|www-authenticate" || true
-
-          echo ""
-
-          echo "=== Attempting JSON parsing ==="
-
-          if jq empty xray-diagnostic-response.txt 2>/dev/null; then
-
-            echo "Response is valid JSON."
-
-            echo ""
-            echo "=== JSON Response ==="
-
-            jq . xray-diagnostic-response.txt
-
-          else
-
-            echo "Response is NOT valid JSON."
-            echo "This is likely an Xray API error or unsupported endpoint."
-
+          if [ -z "$TEST_EXEC_ISSUE_ID" ]; then
+            echo "ERROR: Could not determine Test Execution issue ID"
+            exit 1
           fi
 
           echo ""
-          echo "=== Diagnostic complete ==="
+          echo "=== Querying Xray GraphQL ==="
 
+          GRAPHQL_QUERY='
+          {
+            getTestRuns(
+              testExecIssueIds: ["'"$TEST_EXEC_ISSUE_ID"'"]
+              limit: 100
+              start: 0
+          ) {
+            total
+            limit
+            start
+            results {
+              id
+
+              status {
+                name
+                description
+              }
+
+              test {
+                issueId
+              }
+
+              testExecution {
+                issueId
+              }
+
+              steps {
+                id
+                action
+                data
+                result
+                actualResult
+                comment
+                status {
+                  name
+                }
+               }
+              }
+             }
+            }'
+
+            echo ""
+            echo "=== GraphQL Query ==="
+            echo "$GRAPHQL_QUERY"
+
+            echo ""
+            echo "=== Xray GraphQL Response ==="
+
+            curl -s \
+              -X POST \
+              -H "Authorization: Bearer $XRAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg query "$GRAPHQL_QUERY" '{query: $query}')" \
+              "https://xray.cloud.getxray.app/api/v2/graphql" \
+              | tee xray-test-runs.json
+
+            echo ""
+            echo "=== Parsed Test Runs ==="
+
+            jq . xray-test-runs.json
+
+            echo ""
+            echo "=== Test Run Summary ==="
+
+            jq -r '
+              .data.getTestRuns.results[] |
+              "Test issue ID: \(.test.issueId) | Test Run ID: \(.id) | Status: \(status.name)"
+            ' xray-test-runs.json 2>/dev/null || true
+
+            echo ""
+            echo "=== Diagnostic complete ==="
 
 
       
