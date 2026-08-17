@@ -442,10 +442,9 @@ jobs:
 
         run: |
 
-          set -e
+          set +e
 
           echo "=== Xray Diagnostic ==="
-
           echo "Execution key: $XRAY_EXECUTION_KEY"
 
           if [ -z "$XRAY_EXECUTION_KEY" ]; then
@@ -454,34 +453,57 @@ jobs:
           fi
 
           echo ""
-          echo "=== Querying Xray Test Execution ==="
+          echo "=== Querying Xray ==="
 
-          RESPONSE=$(curl -s \
-           -H "Authorization: Bearer $XRAY_TOKEN" \
-           -H "Content-Type: application/json" \
-           "https://xray.cloud.getxray.app/api/v2/testexecutions/$XRAY_EXECUTION_KEY")
+          HTTP_CODE=$(curl -s \
+            -o xray-diagnostic-response.txt \
+            -w "%{http_code}" \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://xray.cloud.getxray.app/api/v2/testexecutions/$XRAY_EXECUTION_KEY")
 
-          echo "=== Xray Test Execution Response ==="
-
-          echo "$RESPONSE" | jq .
+          echo "HTTP status: $HTTP_CODE"
 
           echo ""
-          echo "=== Looking for Test Runs ==="
+          echo "=== Raw Xray Response ==="
 
-          echo "$RESPONSE" | jq '
-           .. |
-           objects |
-           select(
-            has("testKey") or
-            has("testStatus") or
-            has("status") or
-            has("comment") or
-            has("actualResult")
-           )
-          ' || true
+          cat xray-diagnostic-response.txt
+
+          echo ""
+
+          echo "=== Response Headers / Content Type ==="
+
+          curl -sI \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://xray.cloud.getxray.app/api/v2/testexecutions/$XRAY_EXECUTION_KEY" \
+            | grep -Ei "HTTP/|content-type|www-authenticate" || true
+
+          echo ""
+
+          echo "=== Attempting JSON parsing ==="
+
+          if jq empty xray-diagnostic-response.txt 2>/dev/null; then
+
+            echo "Response is valid JSON."
+
+            echo ""
+            echo "=== JSON Response ==="
+
+            jq . xray-diagnostic-response.txt
+
+          else
+
+            echo "Response is NOT valid JSON."
+            echo "This is likely an Xray API error or unsupported endpoint."
+
+          fi
+
+          echo ""
+          echo "=== Diagnostic complete ==="
 
 
-      
+
       
       # ----------------------------------------
       # 14. Generate Postman Test Summary
