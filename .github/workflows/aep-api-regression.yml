@@ -505,7 +505,7 @@ jobs:
              -o xray-test-runs.json \
              -w "%{http_code}" \
              -X POST \
-             -H "Authorization: Bearer $XRAY_TOKEN" \
+             -H "Authorization: $XRAY_TOKEN" \
              -H "Content-Type: application/json" \
              --data "$(jq -n --arg query "$GRAPHQL_QUERY" '{query: $query}')" \
              "https://xray.cloud.getxray.app/api/v2/graphql")
