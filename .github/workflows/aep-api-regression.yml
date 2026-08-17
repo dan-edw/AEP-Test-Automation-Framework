@@ -429,10 +429,6 @@ jobs:
 
 
       
-      # ----------------------------------------
-      # Diagnostic: inspect Xray Test Runs
-      # ----------------------------------------
-
       - name: Diagnose Xray Test Runs
         if: always()
         shell: bash
@@ -453,38 +449,19 @@ jobs:
           fi
 
           echo ""
-          echo "=== Getting Jira issue ID for Test Execution ==="
-
-          JIRA_RESPONSE=$(curl -s \
-            -H "Authorization: Bearer $XRAY_TOKEN" \
-            -H "Accept: application/json" \
-            "https://ifl-uat.atlassian.net/rest/api/2/issue/$XRAY_EXECUTION_KEY")
-
-          echo "$JIRA_RESPONSE" | jq .
-
-          TEST_EXEC_ISSUE_ID=$(echo "$JIRA_RESPONSE" | jq -r '.id // empty')
-
-          echo ""
-          echo "Test Execution issue ID: $TEST_EXEC_ISSUE_ID"
-
-          if [ -z "$TEST_EXEC_ISSUE_ID" ]; then
-            echo "ERROR: Could not determine Test Execution issue ID"
-            exit 1
-          fi
-
-          echo ""
           echo "=== Querying Xray GraphQL ==="
 
           GRAPHQL_QUERY='
           {
             getTestRuns(
-              testExecIssueIds: ["'"$TEST_EXEC_ISSUE_ID"'"]
+              testExecIssueKeys: ["'"$XRAY_EXECUTION_KEY"'"]
               limit: 100
               start: 0
           ) {
             total
             limit
             start
+
             results {
               id
 
@@ -508,6 +485,7 @@ jobs:
                 result
                 actualResult
                 comment
+
                 status {
                   name
                 }
@@ -521,31 +499,54 @@ jobs:
             echo "$GRAPHQL_QUERY"
 
             echo ""
-            echo "=== Xray GraphQL Response ==="
+            echo "=== Calling Xray GraphQL ==="
 
-            curl -s \
-              -X POST \
-              -H "Authorization: Bearer $XRAY_TOKEN" \
-              -H "Content-Type: application/json" \
-              --data "$(jq -n --arg query "$GRAPHQL_QUERY" '{query: $query}')" \
-              "https://xray.cloud.getxray.app/api/v2/graphql" \
-              | tee xray-test-runs.json
+            HTTP_CODE=$(curl -s \
+             -o xray-test-runs.json \
+             -w "%{http_code}" \
+             -X POST \
+             -H "Authorization: Bearer $XRAY_TOKEN" \
+             -H "Content-Type: application/json" \
+             --data "$(jq -n --arg query "$GRAPHQL_QUERY" '{query: $query}')" \
+             "https://xray.cloud.getxray.app/api/v2/graphql")
+
+            echo "HTTP status: $HTTP_CODE"
 
             echo ""
-            echo "=== Parsed Test Runs ==="
+            echo "=== Raw Xray GraphQL Response ==="
+            cat xray-test-runs.json
 
-            jq . xray-test-runs.json
+            echo ""
+            echo "=== Parsed Response ==="
+
+            if jq empty xray-test-runs.json 2>/dev/null; then
+              jq . xray-test-runs.json
+            else
+              echo "Response is not valid JSON."
+            fi
 
             echo ""
             echo "=== Test Run Summary ==="
 
             jq -r '
-              .data.getTestRuns.results[] |
-              "Test issue ID: \(.test.issueId) | Test Run ID: \(.id) | Status: \(status.name)"
+              .data.getTestRuns.results[]? |
+              "Test Run ID: \(.id) | Test issue ID: \(.test.issueId) | Status: \(status.name)"
+            ' xray-test-runs.json 2>/dev/null || true
+
+            echo ""
+            echo "=== Test Run Steps ==="
+
+            jq -r '
+              .data.getTestRuns.results[]? |
+              "----- Test Run \(.id) -----",
+              (.steps[]? |
+                "Step: \(.id) | Status: \(status.name) | Actual: \(.actualResult // "(none)") | Comment: \(.comment // "(none)")"
+              )
             ' xray-test-runs.json 2>/dev/null || true
 
             echo ""
             echo "=== Diagnostic complete ==="
+
 
 
       
