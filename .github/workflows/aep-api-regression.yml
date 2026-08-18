@@ -436,7 +436,7 @@ jobs:
         if: always()
         env:
           XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
-          XRAY_EXECUTION_KEY: ${{ steps.publish.outputs.XRAY_EXECUTION_KEY }}
+          XRAY_EXECUTION_KEY: ${{ secrets.XRAY_PROJECT_KEY }}
         shell: bash
         run: |
          set +e
