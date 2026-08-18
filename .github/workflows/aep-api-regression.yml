@@ -472,7 +472,7 @@ jobs:
             total
             results {
               issueId
-              jira(fields: [key])
+              jira(fields: ["key", "summary"])
             }
            }
           }'
