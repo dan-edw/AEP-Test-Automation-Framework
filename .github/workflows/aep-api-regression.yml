@@ -427,11 +427,10 @@ jobs:
 
           echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
 
+      # ----------------------------------------
+      # 14. Diagnose Xray Test Runs
+      # ----------------------------------------
       
-      # ----------------------------------------
-      # 14. Diagnose the Results from Xray
-      # ----------------------------------------
-        
       - name: Diagnose Xray Test Runs
         if: always()
         env:
@@ -439,111 +438,189 @@ jobs:
           XRAY_EXECUTION_KEY: ${{ secrets.XRAY_PROJECT_KEY }}
         shell: bash
         run: |
-         set +e
+          set +e
 
-         echo "=== Xray Test Run Diagnostic ==="
-         echo "Execution key: $XRAY_EXECUTION_KEY"
+          echo "=== Xray Test Run Diagnostic ==="
+          echo "Execution key: $XRAY_EXECUTION_KEY"
 
-         if [ -z "$XRAY_EXECUTION_KEY" ]; then
-           echo "ERROR: Xray execution key was not returned"
-           exit 1
-         fi
+          if [ -z "$XRAY_EXECUTION_KEY" ]; then
+            echo "ERROR: Xray execution key was not returned"
+            exit 1
+          fi
 
-         if [ -z "$XRAY_TOKEN" ]; then
-           echo "ERROR: XRAY_TOKEN is empty in diagnostic step"
-           exit 1
-         fi
+          if [ -z "$XRAY_TOKEN" ]; then
+            echo "ERROR: XRAY_TOKEN is empty"
+            exit 1
+          fi
 
-         echo "XRAY_TOKEN is present"
-
-
+          echo "XRAY_TOKEN is present"
           echo ""
-          echo "=== Querying Xray GraphQL ==="
 
-          GRAPHQL_QUERY='
+          # --------------------------------------------------
+          # a. Find Xray Test Execution internal issue ID
+          # --------------------------------------------------
+
+          echo "=== Getting Test Execution internal ID ==="
+
+          EXEC_QUERY='
           {
-            getTestRuns(
-              testExecIssueKeys: ["'"$XRAY_EXECUTION_KEY"'"]
-              limit: 100
-              start: 0
+            getTestExecutions(
+            jql: "key = \"'"$XRAY_EXECUTION_KEY"'\""
+            limit: 1
+            start: 0
           ) {
             total
-            limit
-            start
             results {
-              id
-              status {
-                name
-                description
-               }
-               test {
-                issueId
-               }
-               testExecution {
-                issueId
-               }
-               steps {
-                id
-                action
-                data
-                result
-                actualResult
-                comment
-                status {
-                 name
-                }
-               }
-              }
-             }
-           }'
+              issueId
+              jira(fields: [key, summary])
+            }
+           }
+          }'
 
-           echo ""
-           echo "=== Calling Xray GraphQL ==="
+          echo "=== Test Execution Query ==="
+          echo "$EXEC_QUERY"
 
           HTTP_CODE=$(curl -s \
-           -o xray-test-runs.json \
-           -w "%{http_code}" \
-           -X POST \
-           -H "Authorization: Bearer $XRAY_TOKEN" \
-           -H "Content-Type: application/json" \
-           --data "$(jq -n --arg query "$GRAPHQL_QUERY" '{query: $query}')" \
-           "https://xray.cloud.getxray.app/api/v2/graphql")
+            -o xray-execution.json \
+            -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -n --arg query "$EXEC_QUERY" '{query: $query}')" \
+            "https://xray.cloud.getxray.app/api/v2/graphql")
 
           echo "HTTP status: $HTTP_CODE"
+
           echo ""
-          echo "=== Raw Xray GraphQL Response ==="
+          echo "=== Test Execution Response ==="
+          cat xray-execution.json
+          echo ""
+
+          if ! jq empty xray-execution.json 2>/dev/null; then
+            echo "ERROR: Xray returned invalid JSON"
+            exit 1
+          fi
+
+          EXEC_ISSUE_ID=$(jq -r \
+            '.data.getTestExecutions.results[0].issueId // empty' \
+            xray-execution.json)
+
+          echo "Test Execution internal issue ID: $EXEC_ISSUE_ID"
+
+          if [ -z "$EXEC_ISSUE_ID" ]; then
+            echo "ERROR: Could not find internal issue ID"
+            exit 1
+          fi
+
+          echo ""
+
+          # --------------------------------------------------
+          # b. Get Test Runs belonging to the execution
+          # --------------------------------------------------
+
+          echo "=== Getting Test Runs ==="
+
+          RUN_QUERY='
+          {
+            getTestRuns(
+              testExecIssueIds: ["'"$EXEC_ISSUE_ID"'"]
+              limit: 100
+              start: 0
+            ) {
+              total
+              limit
+              start
+
+              results {
+                id
+
+                status {
+                  name
+                  description
+                }
+
+                test {
+                  issueId
+                }
+
+                testExecution {
+                  issueId
+                }
+
+                steps {
+                  id
+                  action
+                  data
+                  result
+                  actualResult
+                  comment
+
+                  status {
+                    name
+                  }
+                }
+              }
+            }
+          }'
+
+          echo "=== Test Runs Query ==="
+          echo "$RUN_QUERY"
+
+          HTTP_CODE=$(curl -s \
+            -o xray-test-runs.json \
+            -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -n --arg query "$RUN_QUERY" '{query: $query}')" \
+            "https://xray.cloud.getxray.app/api/v2/graphql")
+
+          echo "HTTP status: $HTTP_CODE"
+
+          echo ""
+          echo "=== Raw Test Runs Response ==="
           cat xray-test-runs.json
 
           echo ""
           echo "=== Parsed Response ==="
 
-          if jq empty xray-test-runs.json 2>/dev/null; then
-           jq . xray-test-runs.json
-          else
-           echo "Response is not valid JSON."
-          fi
+          jq . xray-test-runs.json 2>/dev/null || true
 
           echo ""
           echo "=== Test Run Summary ==="
 
           jq -r '
-           .data.getTestRuns.results[]? |
-           "Test Run ID: \(.id) | Test issue ID: \(.test.issueId) | Status: \(status.name)"
+            .data.getTestRuns.results[]? |
+            "Test Run ID: \(.id) | Test issue ID: \(.test.issueId) | Status: \(.status.name)"
           ' xray-test-runs.json 2>/dev/null || true
 
           echo ""
-          echo "=== Test Run Steps ==="
+          echo "=== Test Run Details ==="
 
           jq -r '
-           .data.getTestRuns.results[]? |
-           "----- Test Run \(.id) -----",
-           (.steps[]? |
-           "Step: \(.id) | Status: \(status.name) | Actual: \(.actualResult // "(none)") | Comment: \(.comment // "(none)")"
-           )
+            .data.getTestRuns.results[]? |
+
+            "========================================",
+            "Test Run ID: \(.id)",
+            "Test issue ID: \(.test.issueId)",
+            "Status: \(.status.name)",
+            "----------------------------------------",
+
+            (.steps[]? |
+              "Step ID: \(.id)",
+              "Status: \(.status.name)",
+              "Action: \(.action // "(none)")",
+              "Actual Result: \(.actualResult // "(none)")",
+              "Comment: \(.comment // "(none)")",
+              ""
+            )
           ' xray-test-runs.json 2>/dev/null || true
 
           echo ""
           echo "=== Diagnostic complete ==="
+  
+
+
 
 
       
