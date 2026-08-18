@@ -437,16 +437,25 @@ jobs:
         env:
           XRAY_TOKEN: ${{ secrets.XRAY_TOKEN }}
           XRAY_EXECUTION_KEY: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_KEY }}
+        shell: bash
         run: |
-          set +e
+         set +e
 
-          echo "=== Xray Test Run Diagnostic ==="
-          echo "Execution key: $XRAY_EXECUTION_KEY"
+         echo "=== Xray Test Run Diagnostic ==="
+         echo "Execution key: $XRAY_EXECUTION_KEY"
 
-          if [ -z "$XRAY_EXECUTION_KEY" ]; then
-            echo "ERROR: Xray execution key was not returned"
-            exit 1
-          fi
+         if [ -z "$XRAY_EXECUTION_KEY" ]; then
+           echo "ERROR: Xray execution key was not returned"
+           exit 1
+         fi
+
+         if [ -z "$XRAY_TOKEN" ]; then
+           echo "ERROR: XRAY_TOKEN is empty in diagnostic step"
+           exit 1
+         fi
+
+         echo "XRAY_TOKEN is present"
+
 
           echo ""
           echo "=== Querying Xray GraphQL ==="
