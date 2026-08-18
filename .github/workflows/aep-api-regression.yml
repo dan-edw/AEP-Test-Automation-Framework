@@ -435,8 +435,8 @@ jobs:
       - name: Diagnose Xray Test Runs
         if: always()
         env:
-          XRAY_TOKEN: ${{ secrets.XRAY_TOKEN }}
-          XRAY_EXECUTION_KEY: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_KEY }}
+          XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
+          XRAY_EXECUTION_KEY: ${{ steps.xray- publish.outputs.XRAY_EXECUTION_KEY }}
         shell: bash
         run: |
          set +e
