@@ -427,17 +427,17 @@ jobs:
 
           echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
 
-
       
+      # ----------------------------------------
+      # 14. Diagnose the Results from Xray
+      # ----------------------------------------
+        
       - name: Diagnose Xray Test Runs
         if: always()
-        shell: bash
         env:
           XRAY_TOKEN: ${{ secrets.XRAY_TOKEN }}
           XRAY_EXECUTION_KEY: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_KEY }}
-
         run: |
-
           set +e
 
           echo "=== Xray Test Run Diagnostic ==="
@@ -461,92 +461,80 @@ jobs:
             total
             limit
             start
-
             results {
               id
-
               status {
                 name
                 description
-              }
-
-              test {
+               }
+               test {
                 issueId
-              }
-
-              testExecution {
+               }
+               testExecution {
                 issueId
-              }
-
-              steps {
+               }
+               steps {
                 id
                 action
                 data
                 result
                 actualResult
                 comment
-
                 status {
-                  name
+                 name
                 }
                }
               }
              }
-            }'
+           }'
 
-            echo ""
-            echo "=== GraphQL Query ==="
-            echo "$GRAPHQL_QUERY"
+           echo ""
+           echo "=== Calling Xray GraphQL ==="
 
-            echo ""
-            echo "=== Calling Xray GraphQL ==="
+          HTTP_CODE=$(curl -s \
+           -o xray-test-runs.json \
+           -w "%{http_code}" \
+           -X POST \
+           -H "Authorization: Bearer $XRAY_TOKEN" \
+           -H "Content-Type: application/json" \
+           --data "$(jq -n --arg query "$GRAPHQL_QUERY" '{query: $query}')" \
+           "https://xray.cloud.getxray.app/api/v2/graphql")
 
-            HTTP_CODE=$(curl -s \
-             -o xray-test-runs.json \
-             -w "%{http_code}" \
-             -X POST \
-             -H "Authorization: $XRAY_TOKEN" \
-             -H "Content-Type: application/json" \
-             --data "$(jq -n --arg query "$GRAPHQL_QUERY" '{query: $query}')" \
-             "https://xray.cloud.getxray.app/api/v2/graphql")
+          echo "HTTP status: $HTTP_CODE"
+          echo ""
+          echo "=== Raw Xray GraphQL Response ==="
+          cat xray-test-runs.json
 
-            echo "HTTP status: $HTTP_CODE"
+          echo ""
+          echo "=== Parsed Response ==="
 
-            echo ""
-            echo "=== Raw Xray GraphQL Response ==="
-            cat xray-test-runs.json
+          if jq empty xray-test-runs.json 2>/dev/null; then
+           jq . xray-test-runs.json
+          else
+           echo "Response is not valid JSON."
+          fi
 
-            echo ""
-            echo "=== Parsed Response ==="
+          echo ""
+          echo "=== Test Run Summary ==="
 
-            if jq empty xray-test-runs.json 2>/dev/null; then
-              jq . xray-test-runs.json
-            else
-              echo "Response is not valid JSON."
-            fi
+          jq -r '
+           .data.getTestRuns.results[]? |
+           "Test Run ID: \(.id) | Test issue ID: \(.test.issueId) | Status: \(status.name)"
+          ' xray-test-runs.json 2>/dev/null || true
 
-            echo ""
-            echo "=== Test Run Summary ==="
+          echo ""
+          echo "=== Test Run Steps ==="
 
-            jq -r '
-              .data.getTestRuns.results[]? |
-              "Test Run ID: \(.id) | Test issue ID: \(.test.issueId) | Status: \(status.name)"
-            ' xray-test-runs.json 2>/dev/null || true
+          jq -r '
+           .data.getTestRuns.results[]? |
+           "----- Test Run \(.id) -----",
+           (.steps[]? |
+           "Step: \(.id) | Status: \(status.name) | Actual: \(.actualResult // "(none)") | Comment: \(.comment // "(none)")"
+           )
+          ' xray-test-runs.json 2>/dev/null || true
 
-            echo ""
-            echo "=== Test Run Steps ==="
-
-            jq -r '
-              .data.getTestRuns.results[]? |
-              "----- Test Run \(.id) -----",
-              (.steps[]? |
-                "Step: \(.id) | Status: \(status.name) | Actual: \(.actualResult // "(none)") | Comment: \(.comment // "(none)")"
-              )
-            ' xray-test-runs.json 2>/dev/null || true
-
-            echo ""
-            echo "=== Diagnostic complete ==="
-
+          echo ""
+          echo "=== Diagnostic complete ==="
 
 
       
