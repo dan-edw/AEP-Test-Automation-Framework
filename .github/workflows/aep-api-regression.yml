@@ -389,58 +389,490 @@ jobs:
       # ----------------------------------------
 
       - name: Publish Results to Xray
-        id: xray-publish
+        id: xray
         if: always()
         shell: bash
+        env:
+          XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
         run: |
+          set +e
 
-         echo "=== Xray JUnit file check ==="
-         pwd
-         ls -lh test-results.xml
+          echo "=== Publishing JUnit Results to Xray ==="
 
-         RESPONSE=$(curl -s \
-           --fail-with-body \
-           -H "Authorization: Bearer $XRAY_TOKEN" \
-           -H "Content-Type: text/xml" \
-           --data-binary "@$(pwd)/test-results.xml" \
-           "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=${{ secrets.XRAY_PROJECT_KEY }}"
-          )
+          if [ -z "$XRAY_TOKEN" ]; then
+            echo "ERROR: XRAY_TOKEN is empty"
+            exit 1
+          fi
 
-          echo "===== XRAY RESPONSE ====="
-          echo "$RESPONSE"
+          if [ ! -f "test-results.xml" ]; then
+            echo "ERROR: test-results.xml does not exist"
+            exit 1
+          fi
 
-          XRAY_EXECUTION_KEY=$(echo "$RESPONSE" | node -e "
-          let data='';
-          process.stdin.on('data', chunk => data += chunk);
-          process.stdin.on('end', () => {
-            try {
-              const json = JSON.parse(data);
-              console.log(json.key || '');
-            } catch {
-              console.log('');
-            }
-          });
-          ")
+          if [ ! -f "xray-test-results.json" ]; then
+            echo "ERROR: xray-test-results.json does not exist"
+            exit 1
+          fi
 
-          XRAY_EXECUTION_ID=$(echo "$RESPONSE" | node -e "
-          let data='';
-          process.stdin.on('data', chunk => data += chunk);
-          process.stdin.on('end', () => {
-            try {
-              const json = JSON.parse(data);
-              console.log(json.id || '');
-            } catch {
-              console.log('');
-            }
-          });
-          ")
+          echo ""
+          echo "=== JUnit file ==="
+          ls -lh test-results.xml
 
+          echo ""
+          echo "=== Xray result file ==="
+          ls -lh xray-test-results.json
+
+          echo ""
+          echo "=== Xray result data ==="
+          cat xray-test-results.json
+
+          # --------------------------------------------------
+          # a. Import JUnit into Xray
+          # --------------------------------------------------
+
+          echo ""
+          echo "=== Importing JUnit results into Xray ==="
+
+          HTTP_CODE=$(curl -s \
+            -o xray-import-response.json \
+            -w "%{http_code}" \
+            --fail-with-body \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: text/xml" \
+            --data-binary "@$(pwd)/test-results.xml" \
+            "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=${{ vars.XRAY_PROJECT_KEY }}")
+
+          echo "HTTP status: $HTTP_CODE"
+
+          echo ""
+          echo "=== Xray Import Response ==="
+          cat xray-import-response.json
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "ERROR: Xray JUnit import failed"
+            exit 1
+          fi
+
+          # --------------------------------------------------
+          # b. Extract Test Execution key
+          # --------------------------------------------------
+
+          XRAY_EXECUTION_KEY=$(jq -r \
+            '.key // empty' \
+            xray-import-response.json)
+
+          echo ""
           echo "=== Xray Test Execution ==="
           echo "Key: $XRAY_EXECUTION_KEY"
-          echo "Internal ID: $XRAY_EXECUTION_ID"
+
+          if [ -z "$XRAY_EXECUTION_KEY" ]; then
+            echo "ERROR: Xray execution key was not returned"
+            exit 1
+          fi
 
           echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
-          echo "XRAY_EXECUTION_ID=$XRAY_EXECUTION_ID" >> "$GITHUB_OUTPUT"
+
+          # --------------------------------------------------
+          # c. Find Xray Test Execution internal ID
+          # --------------------------------------------------
+
+          echo ""
+          echo "=== Getting Xray Test Execution internal ID ==="
+
+          EXEC_QUERY=$(cat <<EOF
+          {
+            getTestExecutions(
+              jql: "key = \\"$XRAY_EXECUTION_KEY\\""
+              limit: 1
+              start: 0
+            ) {
+              total
+              results {
+                issueId
+                jira(fields: ["key", "summary"])
+              }
+             }
+            }
+            EOF
+            )
+
+            echo "=== Execution GraphQL Query ==="
+            echo "$EXEC_QUERY"
+
+            HTTP_CODE=$(curl -s \
+              -o xray-execution.json \
+              -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $XRAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n \
+                --arg query "$EXEC_QUERY" \
+                '{query: $query}')" \
+              "https://xray.cloud.getxray.app/api/v2/graphql")
+
+            echo "HTTP status: $HTTP_CODE"
+
+            echo ""
+            echo "=== Execution Response ==="
+            cat xray-execution.json
+
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "ERROR: Could not query Xray Test Execution"
+              exit 1
+            fi
+
+            XRAY_EXECUTION_ID=$(jq -r \
+              '.data.getTestExecutions.results[0].issueId // empty' \
+              xray-execution.json)
+
+            echo ""
+            echo "Xray execution internal ID: $XRAY_EXECUTION_ID"
+
+            if [ -z "$XRAY_EXECUTION_ID" ]; then
+              echo "ERROR: Xray execution internal ID was not found"
+              exit 1
+            fi
+
+            echo "XRAY_EXECUTION_ID=$XRAY_EXECUTION_ID" >> "$GITHUB_OUTPUT"
+
+            # --------------------------------------------------
+            # d. Get Test Runs belonging to this execution
+            # --------------------------------------------------
+
+            echo ""
+            echo "=== Getting Xray Test Runs ==="
+
+            RUN_QUERY=$(cat <<EOF
+            {
+              getTestRuns(
+                testExecIssueIds: ["$XRAY_EXECUTION_ID"]
+                limit: 100
+                start: 0
+              ) {
+                total
+
+                results {
+                  id
+
+                  status {
+                    name
+                    description
+                  }
+
+                  test {
+                    issueId
+                    jira(fields: ["key", "summary"])
+                  }
+
+                  testExecution {
+                    issueId
+                  }
+                }
+              }
+            }
+            EOF
+            )
+
+            echo "=== Test Run GraphQL Query ==="
+            echo "$RUN_QUERY"
+
+            HTTP_CODE=$(curl -s \
+              -o xray-test-runs.json \
+              -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $XRAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n \
+                --arg query "$RUN_QUERY" \
+                '{query: $query}')" \
+              "https://xray.cloud.getxray.app/api/v2/graphql")
+
+            echo "HTTP status: $HTTP_CODE"
+
+            echo ""
+            echo "=== Xray Test Runs ==="
+            jq . xray-test-runs.json
+
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "ERROR: Could not retrieve Xray Test Runs"
+              exit 1
+            fi
+
+            # --------------------------------------------------
+            # e. Validate we received Test Runs
+            # --------------------------------------------------
+
+            TEST_RUN_COUNT=$(jq -r \
+              'data.getTestRuns.total // 0' \
+              xray-test-runs.json)
+
+            echo ""
+            echo "Xray Test Runs found: $TEST_RUN_COUNT"
+
+            if [ "$TEST_RUN_COUNT" -eq 0 ]; then
+              echo "ERROR: No Xray Test Runs were found"
+              exit 1
+            fi
+
+            # --------------------------------------------------
+            # f. Build Jira Test Key -> Xray Test Run ID mapping
+            # --------------------------------------------------
+
+            echo ""
+            echo "=== Building Xray Test Run Mapping ==="
+
+            declare -A XRAY_RUN_IDS
+
+            while IFS='|' read -r TEST_KEY TEST_RUN_ID TEST_STATUS; do
+
+            if [ -n "$TEST_KEY" ] && [ -n "$TEST_RUN_ID" ]; then
+              XRAY_RUN_IDS["$TEST_KEY"]="$TEST_RUN_ID"
+
+              echo "$TEST_KEY -> $TEST_RUN_ID [$TEST_STATUS]"
+            fi
+
+            done < <(
+              jq -r '
+                .data.getTestRuns.results[] |
+                "\(.test.jira.key)|\(.id)|\(status.name)"
+              ' xray-test-runs.json
+            )
+
+            # --------------------------------------------------
+            # g. Update each individual Xray Test Run
+            # --------------------------------------------------
+
+            UPDATED_COUNT=0
+            FAILED_UPDATE_COUNT=0
+
+            echo ""
+            echo "=== Updating Xray Test Run Comments ==="
+
+            while IFS= read -r TEST_RESULT; do
+
+              TEST_KEY=$(echo "$TEST_RESULT" | jq -r '.testKey')
+              TEST_NAME=$(echo "$TEST_RESULT" | jq -r '.testName')
+              TEST_STATUS=$(echo "$TEST_RESULT" | jq -r '.status')
+
+              EXPECTED_STATUS=$(echo "$TEST_RESULT" | jq -r \
+                '.expectedStatus // ""')
+
+              ACTUAL_STATUS=$(echo "$TEST_RESULT" | jq -r \
+                '.actualStatus // ""')
+
+              ASSERTION=$(echo "$TEST_RESULT" | jq -r \
+                '.assertion // ""')
+
+              FAILURE_MESSAGE=$(echo "$TEST_RESULT" | jq -r \
+                '.failureMessage // ""')
+
+              METHOD=$(echo "$TEST_RESULT" | jq -r \
+                '.method // ""')
+
+              REQUEST_URL=$(echo "$TEST_RESULT" | jq -r \
+                '.requestUrl // ""')
+
+              TEST_RUN_ID="${XRAY_RUN_IDS[$TEST_KEY]}"
+
+              echo ""
+              echo "========================================"
+              echo "Jira Test: $TEST_KEY"
+              echo "Test Name: $TEST_NAME"
+              echo "Status: $TEST_STATUS"
+              echo "Xray Test Run: ${TEST_RUN_ID:-NOT FOUND}"
+              echo "========================================"
+
+              if [ -z "$TEST_RUN_ID" ]; then
+                echo "ERROR: No Xray Test Run found for $TEST_KEY"
+                FAILED_UPDATE_COUNT=$((FAILED_UPDATE_COUNT + 1))
+                continue
+              fi
+
+              # ------------------------------------------------
+              # h. Build human-readable Xray comment
+              # ------------------------------------------------
+
+              if [ "$TEST_STATUS" = "FAIL" ]; then
+
+                COMMENT=$(cat <<EOF
+                Jira Test: $TEST_KEY
+                Xray Test Run: $TEST_RUN_ID
+
+                Status:
+                FAILED
+
+                Actual Result:
+                The Postman request failed an assertion.
+
+                Request:
+                $METHOD $REQUEST_URL
+
+                Expected HTTP status:
+                ${EXPECTED_STATUS:-N/A}
+
+                Actual HTTP status:
+                ${ACTUAL_STATUS:-N/A}
+
+                Assertion:
+                ${ASSERTION:-N/A}
+
+                Failure Details:
+                ${FAILURE_MESSAGE:-Postman test failed}
+                EOF
+                )
+
+                    elif [ "$TEST_STATUS" = "ERROR" ]; then
+
+                      COMMENT=$(cat <<EOF
+                Jira Test: $TEST_KEY
+                Xray Test Run: $TEST_RUN_ID
+
+                Status:
+                ERROR
+
+                Actual Result:
+                The Postman request could not be executed or no execution result was available.
+
+                Request:
+                $METHOD $REQUEST_URL
+
+                Failure Details:
+                ${FAILURE_MESSAGE:-No Postman execution result was available.}
+                EOF
+                )
+
+                    else
+
+                      COMMENT=$(cat <<EOF
+                Jira Test: $TEST_KEY
+                Xray Test Run: $TEST_RUN_ID
+
+                Status:
+                PASSED
+
+                Actual Result:
+                The Postman request completed successfully and all captured assertions passed.
+
+                Request:
+                $METHOD $REQUEST_URL
+
+                Expected HTTP status:
+                ${EXPECTED_STATUS:-N/A}
+
+                Actual HTTP status:
+                ${ACTUAL_STATUS:-N/A}
+
+                Assertion Result:
+                All captured assertions passed successfully.
+                EOF
+                )
+
+                    fi
+
+                    # ------------------------------------------------
+                    # i. Escape comment as GraphQL string
+                    # ------------------------------------------------
+
+                    COMMENT_JSON=$(printf '%s' "$COMMENT" | jq -Rs .)
+
+                    MUTATION=$(cat <<EOF
+                    mutation {
+                      updateTestRunComment(
+                        id: "$TEST_RUN_ID"
+                        comment: $COMMENT_JSON
+                      )
+                    }
+                    EOF
+                    )
+
+                    echo ""
+                    echo "=== Updating Xray Test Run $TEST_RUN_ID ==="
+
+                    echo "Mutation:"
+                    echo "$MUTATION"
+
+                    HTTP_CODE=$(curl -s \
+                      -o xray-update-response.json \
+                      -w "%{http_code}" \
+                      -X POST \
+                      -H "Authorization: Bearer $XRAY_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      --data "$(jq -n \
+                        --arg query "$MUTATION" \
+                        '{query: $query}')" \
+                      "https://xray.cloud.getxray.app/api/v2/graphql")
+
+                    echo "HTTP status: $HTTP_CODE"
+
+                    echo ""
+                    echo "Xray update response:"
+                    cat xray-update-response.json
+
+                    # ------------------------------------------------
+                    # j. Check HTTP response
+                    # ------------------------------------------------
+
+                    if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+
+                      echo ""
+                      echo "ERROR: HTTP failure updating Xray Test Run $TEST_RUN_ID"
+
+                      FAILED_UPDATE_COUNT=$((FAILED_UPDATE_COUNT + 1))
+
+                      continue
+
+                    fi
+
+                    # ------------------------------------------------
+                    # k. Check GraphQL errors
+                    # ------------------------------------------------
+
+                    if jq -e '.errors' xray-update-response.json >/dev/null 2>&1; then
+
+                      echo ""
+                      echo "ERROR: GraphQL failure updating Xray Test Run $TEST_RUN_ID"
+
+                      jq '.errors' xray-update-response.json
+
+                      FAILED_UPDATE_COUNT=$((FAILED_UPDATE_COUNT + 1))
+
+                    else
+
+                      echo ""
+                      echo "SUCCESS: Updated Xray Test Run $TEST_RUN_ID"
+
+                      UPDATED_COUNT=$((UPDATED_COUNT + 1))
+
+                    fi
+
+                  done < <(
+                    jq -c '.tests[]' xray-test-results.json
+                  )
+
+                  # --------------------------------------------------
+                  # l. Final summary
+                  # --------------------------------------------------
+
+                  echo ""
+                  echo "========================================"
+                  echo "=== Xray Update Summary ==="
+                  echo "========================================"
+                  echo "Successfully updated: $UPDATED_COUNT"
+                  echo "Failed updates:       $FAILED_UPDATE_COUNT"
+                  echo "Total Test Runs:      $TEST_RUN_COUNT"
+                  echo "========================================"
+
+                  if [ "$FAILED_UPDATE_COUNT" -gt 0 ]; then
+
+                    echo ""
+                    echo "ERROR: One or more Xray Test Run updates failed."
+
+                    exit 1
+                  fi
+
+                  echo ""
+                  echo "All Xray Test Runs were updated successfully."
+
 
 
 

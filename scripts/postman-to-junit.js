@@ -3,7 +3,15 @@ const path = require('path');
 
 const resultsFile = path.resolve('postman-results.txt');
 const collectionDir = path.resolve('postman/collections/aep-regression');
+
 const outputFile = path.resolve('test-results.xml');
+const xrayResultsFile = path.resolve('xray-test-results.json');
+
+/*
+ * ------------------------------------------------------------
+ * Helpers
+ * ------------------------------------------------------------
+ */
 
 function escapeXml(value) {
   return String(value ?? '')
@@ -80,17 +88,11 @@ console.log(
  * ------------------------------------------------------------
  * Extract Jira test cases from collection files
  *
- * We look for request names such as:
+ * Expected request name:
  *
  * CUTECH-2856 - List field groups
- *
- * This deliberately does NOT depend on the Postman CLI
- * "Root" output.
  * ------------------------------------------------------------
  */
-
-const jiraRegex =
-  /\b([A-Z][A-Z0-9_]*-\d+)\s+-\s+([^\r\n"]+)/;
 
 const collectionTests = [];
 
@@ -103,13 +105,6 @@ for (const file of collectionFiles) {
     continue;
   }
 
-  /*
-   * YAML/Postman request files normally contain:
-   *
-   * name: CUTECH-2856 - List field groups
-   *
-   * Capture the complete name from a name: line.
-   */
   const nameRegex =
     /^\s*name:\s*["']?([^"'\r\n]+?)["']?\s*$/gm;
 
@@ -129,9 +124,6 @@ for (const file of collectionFiles) {
     const key = jiraMatch[1];
     const testName = jiraMatch[2].trim();
 
-    /*
-     * Avoid duplicates.
-     */
     if (
       collectionTests.some(
         (test) => test.key === key
@@ -151,7 +143,8 @@ for (const file of collectionFiles) {
 
 if (collectionTests.length === 0) {
   throw new Error(
-    'Could not find any Jira test cases in the Postman collection files.'
+    'Could not find any Jira test cases in the Postman collection files. ' +
+    'Check that Postman request names contain a Jira key such as CUTECH-2856.'
   );
 }
 
@@ -168,21 +161,6 @@ collectionTests.forEach((test, index) => {
 /*
  * ------------------------------------------------------------
  * Parse Postman execution output
- * ------------------------------------------------------------
- *
- * We still use the CLI output to determine the actual result.
- *
- * Example:
- *
- * GET https://platform.adobe.io/... [200 OK, ...]
- *
- * Pass Status code is 200
- *
- * or:
- *
- * AssertionError Status code is 200
- * expected response to have status code 400 but got 200
- *
  * ------------------------------------------------------------
  */
 
@@ -211,7 +189,7 @@ console.log(
 
 /*
  * ------------------------------------------------------------
- * Split Postman output into execution sections.
+ * Split Postman output into execution sections
  * ------------------------------------------------------------
  */
 
@@ -229,13 +207,16 @@ for (let i = 0; i < executions.length; i++) {
 
 /*
  * ------------------------------------------------------------
- * Analyse an execution
+ * Analyse one execution
  * ------------------------------------------------------------
  */
 
 function analyseExecution(execution) {
   const section = execution.section;
 
+  /*
+   * Assertion failures
+   */
   const assertionFailures = [
     ...section.matchAll(
       /AssertionError\s+([^\r\n]+)[\s\S]*?(?=\n\s*\d+\.\s+AssertionError|\s*$)/gi
@@ -248,6 +229,9 @@ function analyseExecution(execution) {
       section
     );
 
+  /*
+   * HTTP failures
+   */
   const hasHttpFailure =
     /(?:^|\s)\[(?:4\d\d|5\d\d)\s+[^\]]+\]/.test(
       section
@@ -257,7 +241,7 @@ function analyseExecution(execution) {
     hasAssertionFailure || hasHttpFailure;
 
   /*
-   * Expected / actual status from assertion.
+   * Expected / actual HTTP status
    */
   const expectedActual = section.match(
     /expected response to have status code\s+(\d+)\s+but got\s+(\d+)/i
@@ -272,7 +256,7 @@ function analyseExecution(execution) {
     '';
 
   /*
-   * Assertion name.
+   * Assertion name
    */
   const assertionMatch = section.match(
     /AssertionError\s+([^\r\n]+)/i
@@ -282,7 +266,7 @@ function analyseExecution(execution) {
     assertionMatch?.[1]?.trim() || '';
 
   /*
-   * Failure reason.
+   * Failure reason
    */
   let failureMessage = '';
 
@@ -299,7 +283,7 @@ function analyseExecution(execution) {
   }
 
   /*
-   * Assertions.
+   * Assertions
    */
   const assertions = [];
 
@@ -344,20 +328,19 @@ function analyseExecution(execution) {
 
 /*
  * ------------------------------------------------------------
- * Match executions to Jira tests.
- * ------------------------------------------------------------
+ * Match executions to Jira tests
  *
- * Because Postman CLI does not reliably output the Jira key,
- * we use execution order.
+ * Authentication request is excluded.
  *
- * The collection request order and Postman execution order
- * must therefore correspond.
+ * Collection order and Postman execution order must correspond.
  * ------------------------------------------------------------
  */
 
 const usableExecutions = executions.filter(
   (execution) =>
-    !execution.url.includes('ims-na1.adobelogin.com')
+    !execution.url.includes(
+      'ims-na1.adobelogin.com'
+    )
 );
 
 console.log(
@@ -367,7 +350,10 @@ console.log(
   )} execution(s) for ${collectionTests.length} Jira test(s)`
 );
 
-if (usableExecutions.length < collectionTests.length) {
+if (
+  usableExecutions.length <
+  collectionTests.length
+) {
   console.warn(
     `WARNING: Only ${usableExecutions.length} ` +
     `Postman executions were found for ` +
@@ -377,53 +363,123 @@ if (usableExecutions.length < collectionTests.length) {
 
 /*
  * ------------------------------------------------------------
- * Build JUnit testcases
+ * Build JUnit test cases
  * ------------------------------------------------------------
  */
 
 const testCases = [];
 
-for (let i = 0; i < collectionTests.length; i++) {
+/*
+ * This is the structured data that will be written to
+ * xray-test-results.json.
+ */
+const xrayResults = [];
+
+for (
+  let i = 0;
+  i < collectionTests.length;
+  i++
+) {
   const test = collectionTests[i];
   const execution = usableExecutions[i];
 
   /*
-   * If an execution is missing, mark it as an error rather
-   * than silently reporting the test as passed.
+   * Missing Postman execution
    */
   if (!execution) {
+    const missingMessage =
+      `No Postman execution was found for ${test.fullName}.`;
+
     testCases.push(`
   <testcase
-    name="${escapeXml(test.key)}"
+    name="${escapeXml(test.fullName)}"
     classname="AEP API Regression">
 
     <properties>
-      <property name="test_key" value="${escapeXml(test.key)}"/>
-      <property name="test_name" value="${escapeXml(test.name)}"/>
-      <property name="status" value="ERROR"/>
+      <property
+        name="test_key"
+        value="${escapeXml(test.key)}"/>
+
+      <property
+        name="test_name"
+        value="${escapeXml(test.name)}"/>
+
+      <property
+        name="status"
+        value="ERROR"/>
     </properties>
 
     <error
       message="No Postman execution found for this Jira test">
-No Postman execution was found for ${escapeXml(test.fullName)}.
+${escapeXml(missingMessage)}
     </error>
 
   </testcase>`);
 
+    xrayResults.push({
+      testKey: test.key,
+      testName: test.name,
+      fullName: test.fullName,
+      status: 'ERROR',
+      method: '',
+      requestUrl: '',
+      expectedStatus: '',
+      actualStatus: '',
+      assertion: '',
+      failureMessage: missingMessage,
+      assertions: [],
+    });
+
     continue;
   }
 
-  const result = analyseExecution(execution);
+  const result =
+    analyseExecution(execution);
 
   const status =
     result.failed ? 'FAIL' : 'PASS';
 
   /*
-   * Properties.
+   * ----------------------------------------------------------
+   * Add structured Xray result
+   * ----------------------------------------------------------
    */
+
+  xrayResults.push({
+    testKey: test.key,
+    testName: test.name,
+    fullName: test.fullName,
+
+    status,
+
+    method: execution.method,
+    requestUrl: execution.url,
+
+    expectedStatus:
+      result.expectedStatus || '',
+
+    actualStatus:
+      result.actualStatus || '',
+
+    assertion:
+      result.assertion || '',
+
+    failureMessage:
+      result.failureMessage || '',
+
+    assertions:
+      result.assertions,
+  });
+
+  /*
+   * ----------------------------------------------------------
+   * JUnit properties
+   * ----------------------------------------------------------
+   */
+
   let testcase = `
   <testcase
-    name="${escapeXml(test.key)}"
+    name="${escapeXml(test.fullName)}"
     classname="AEP API Regression">
 
     <properties>
@@ -459,8 +515,11 @@ No Postman execution was found for ${escapeXml(test.fullName)}.
     </properties>`;
 
   /*
-   * Failure.
+   * ----------------------------------------------------------
+   * JUnit failure
+   * ----------------------------------------------------------
    */
+
   if (result.failed) {
     const failureDetails = [
       `Test: ${test.fullName}`,
@@ -469,7 +528,10 @@ No Postman execution was found for ${escapeXml(test.fullName)}.
       `Expected HTTP status: ${result.expectedStatus || 'N/A'}`,
       `Actual HTTP status: ${result.actualStatus || 'N/A'}`,
       `Assertion: ${result.assertion || 'N/A'}`,
-      `Failure: ${result.failureMessage || 'Postman test failed'}`,
+      `Failure: ${
+        result.failureMessage ||
+        'Postman test failed'
+      }`,
     ].join('\n');
 
     testcase += `
@@ -482,8 +544,11 @@ No Postman execution was found for ${escapeXml(test.fullName)}.
   }
 
   /*
-   * Detailed execution output for PASS and FAIL.
+   * ----------------------------------------------------------
+   * Detailed execution output
+   * ----------------------------------------------------------
    */
+
   const assertionDetails =
     result.assertions.length > 0
       ? result.assertions
@@ -534,18 +599,23 @@ No Postman execution was found for ${escapeXml(test.fullName)}.
  * ------------------------------------------------------------
  */
 
-const totalTests = collectionTests.length;
+const totalTests =
+  collectionTests.length;
 
-const failedTests = testCases.filter((testcase) =>
-  testcase.includes('<failure')
-).length;
+const failedTests =
+  testCases.filter((testcase) =>
+    testcase.includes('<failure')
+  ).length;
 
-const errorTests = testCases.filter((testcase) =>
-  testcase.includes('<error')
-).length;
+const errorTests =
+  testCases.filter((testcase) =>
+    testcase.includes('<error')
+  ).length;
 
 const passedTests =
-  totalTests - failedTests - errorTests;
+  totalTests -
+  failedTests -
+  errorTests;
 
 /*
  * ------------------------------------------------------------
@@ -574,32 +644,114 @@ fs.writeFileSync(
 
 /*
  * ------------------------------------------------------------
+ * Generate Xray JSON
+ * ------------------------------------------------------------
+ */
+
+const xrayOutput = {
+  generatedAt: new Date().toISOString(),
+
+  suite: 'AEP API Regression',
+
+  summary: {
+    total: totalTests,
+    passed: passedTests,
+    failed: failedTests,
+    errors: errorTests,
+  },
+
+  tests: xrayResults,
+};
+
+fs.writeFileSync(
+  xrayResultsFile,
+  JSON.stringify(
+    xrayOutput,
+    null,
+    2
+  ) + '\n',
+  'utf8'
+);
+
+/*
+ * ------------------------------------------------------------
  * Summary
  * ------------------------------------------------------------
  */
 
 console.log('');
-console.log('JUnit XML created:', outputFile);
-console.log(`Tests found: ${totalTests}`);
-console.log(`Tests passed: ${passedTests}`);
-console.log(`Tests failed: ${failedTests}`);
-console.log(`Tests errors: ${errorTests}`);
+
+console.log(
+  'JUnit XML created:',
+  outputFile
+);
+
+console.log(
+  'Xray test results created:',
+  xrayResultsFile
+);
+
+console.log(
+  `Tests found: ${totalTests}`
+);
+
+console.log(
+  `Tests passed: ${passedTests}`
+);
+
+console.log(
+  `Tests failed: ${failedTests}`
+);
+
+console.log(
+  `Tests errors: ${errorTests}`
+);
 
 console.log('');
-console.log('=== Test Results ===');
 
-collectionTests.forEach((test, index) => {
-  const testcase = testCases[index];
+console.log(
+  '=== Test Results ==='
+);
 
-  let status = 'PASS';
+collectionTests.forEach(
+  (test, index) => {
+    const testcase =
+      testCases[index];
 
-  if (testcase.includes('<failure')) {
-    status = 'FAIL';
-  } else if (testcase.includes('<error')) {
-    status = 'ERROR';
+    let status = 'PASS';
+
+    if (
+      testcase.includes('<failure')
+    ) {
+      status = 'FAIL';
+    } else if (
+      testcase.includes('<error')
+    ) {
+      status = 'ERROR';
+    }
+
+    console.log(
+      `${status} ${test.fullName}`
+    );
   }
+);
 
-  console.log(
-    `${status} ${test.fullName}`
-  );
-});
+console.log('');
+
+console.log(
+  '=== Xray Test Results ==='
+);
+
+xrayResults.forEach(
+  (result) => {
+    console.log(
+      `${result.status} ${result.testKey} - ${result.testName}`
+    );
+
+    if (result.failureMessage) {
+      console.log(
+        `  Failure: ${result.failureMessage}`
+      );
+    }
+  }
+);
