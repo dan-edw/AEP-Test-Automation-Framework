@@ -587,7 +587,7 @@ jobs:
       - name: Diagnose Xray Test Run update API
         if: always()
         env:
-          XRAY_TOKEN: ${{ secrets.XRAY_TOKEN }}
+          XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
         run: |
           set +e
 
