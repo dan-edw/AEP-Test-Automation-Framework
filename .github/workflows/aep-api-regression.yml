@@ -580,7 +580,92 @@ jobs:
               echo "=== Diagnostic complete ==="
 
 
+      # ----------------------------------------
+      # Diagnose Xray Test Run update API
+      # ----------------------------------------
   
+      - name: Diagnose Xray Test Run update API
+        if: always()
+        env:
+          XRAY_TOKEN: ${{ secrets.XRAY_TOKEN }}
+        run: |
+          set +e
+
+          echo "=== Xray GraphQL Mutation Diagnostic ==="
+
+          if [ -z "$XRAY_TOKEN" ]; then
+            echo "ERROR: XRAY_TOKEN is empty"
+            exit 1
+          fi
+
+          INTROSPECTION='
+          {
+           __schema {
+            mutationType {
+             fields {
+              name
+              description
+              args {
+                name
+                type {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }'
+
+            HTTP_CODE=$(curl -s \
+              -o xray-mutations.json \
+              -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $XRAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg query "$INTROSPECTION" '{query: $query}')" \
+              "https://xray.cloud.getxray.app/api/v2/graphql")
+
+            echo "HTTP status: $HTTP_CODE"
+            echo ""
+
+            echo "=== Raw response ==="
+            cat xray-mutations.json
+            echo ""
+
+            echo "=== Mutations containing test/run/result/comment ==="
+
+            jq -r '
+              .data.__schema.mutationType.fields[]
+              | select(
+                (.name | ascii_downcase | contains("test"))
+                or
+                (.name | ascii_downcase | contains("run"))
+                or
+                (.name | ascii_downcase | contains("result"))
+                or
+                (.name | ascii_downcase | contains("comment"))
+               )
+              | .name
+            ' xray-mutations.json 2>/dev/null || true
+
+            echo ""
+            echo "=== Full mutation schema ==="
+
+            jq '
+              .data.__schema.mutationType.fields[]
+              | {
+                 name,
+                 description,
+                 args
+                }
+            ' xray-mutations.json 2>/dev/null || true
+
+      
 
       
       # ----------------------------------------
