@@ -422,10 +422,26 @@ jobs:
           });
           ")
 
+          XRAY_EXECUTION_ID=$(echo "$RESPONSE" | node -e "
+          let data='';
+          process.stdin.on('data', chunk => data += chunk);
+          process.stdin.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              console.log(json.id || '');
+            } catch {
+              console.log('');
+            }
+          });
+          ")
+
           echo "=== Xray Test Execution ==="
           echo "Key: $XRAY_EXECUTION_KEY"
+          echo "Internal ID: $XRAY_EXECUTION_ID"
 
           echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
+          echo "XRAY_EXECUTION_ID=$XRAY_EXECUTION_ID" >> "$GITHUB_OUTPUT"
+
 
       # ----------------------------------------
       # 14. Diagnose Xray Test Runs
@@ -435,135 +451,134 @@ jobs:
         if: always()
         env:
           XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
-          XRAY_EXECUTION_KEY: ${{ secrets.XRAY_PROJECT_KEY }}
+          XRAY_EXECUTION_KEY: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_KEY }}
+          XRAY_EXECUTION_ID: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_ID }}
         shell: bash
         
         run: |
-            set +e
+          set +e
 
-            echo "=== Xray Test Run Diagnostic ==="
-            echo "Execution key: $XRAY_EXECUTION_KEY"
+          echo "=== Xray Test Run Diagnostic ==="
+          echo "Execution key: $XRAY_EXECUTION_KEY"
+          echo "Execution internal ID: $XRAY_EXECUTION_ID"
 
-            if [ -z "$XRAY_TOKEN" ]; then
-              echo "ERROR: XRAY_TOKEN is empty"
-              exit 1
-            fi
+          if [ -z "$XRAY_TOKEN" ]; then
+            echo "ERROR: XRAY_TOKEN is empty"
+            exit 1
+          fi
 
-            if [ -z "$XRAY_EXECUTION_KEY" ]; then
-              echo "ERROR: XRAY_EXECUTION_KEY is empty"
-              exit 1
-            fi
+          if [ -z "$XRAY_EXECUTION_ID" ]; then
+            echo "ERROR: XRAY_EXECUTION_ID is empty"
+            exit 1
+          fi
 
-            echo "XRAY_TOKEN is present"
-            echo ""
+          echo "XRAY_TOKEN is present"
+          echo ""
 
-            # --------------------------------------------------
-            # Get Test Runs for this Test Execution
-            # --------------------------------------------------
+          echo "=== Querying Xray Test Runs ==="
 
-            echo "=== Querying Xray Test Runs ==="
+          RUN_QUERY='
+          {
+            getTestRuns(
+              testExecIssueIds: ["'"$XRAY_EXECUTION_ID"'"]
+              limit: 100
+              start: 0
+            ) {
+              total
+              limit
+              start
 
-            RUN_QUERY='
-            {
-              getTestRuns(
-                testExecIssueKeys: ["'"$XRAY_EXECUTION_KEY"'"]
-                limit: 100
-                start: 0
-              ) {
-                total
-                limit
-                start
+              results {
+                id
 
-                results {
+                status {
+                  name
+                  description
+                }
+
+                test {
+                  issueId
+                }
+
+                testExecution {
+                  issueId
+                }
+
+                steps {
                   id
+                  action
+                  data
+                  result
+                  actualResult
+                  comment
 
                   status {
                     name
-                    description
-                  }
-
-                  test {
-                    issueId
-                  }
-
-                  testExecution {
-                    issueId
-                  }
-
-                  steps {
-                    id
-                    action
-                    data
-                    result
-                    actualResult
-                    comment
-
-                    status {
-                      name
-                    }
-                   }
                   }
                  }
-                }'
+                }
+               }
+              }'
 
-                echo "=== GraphQL Query ==="
-                echo "$RUN_QUERY"
-                echo ""
+              echo "=== GraphQL Query ==="
+              echo "$RUN_QUERY"
+              echo ""
 
-                HTTP_CODE=$(curl -s \
-                  -o xray-test-runs.json \
-                  -w "%{http_code}" \
-                  -X POST \
-                  -H "Authorization: Bearer $XRAY_TOKEN" \
-                  -H "Content-Type: application/json" \
-                  --data "$(jq -n --arg query "$RUN_QUERY" '{query: $query}')" \
-                  "https://xray.cloud.getxray.app/api/v2/graphql")
+              HTTP_CODE=$(curl -s \
+                -o xray-test-runs.json \
+                -w "%{http_code}" \
+                -X POST \
+                -H "Authorization: Bearer $XRAY_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$(jq -n --arg query "$RUN_QUERY" '{query: $query}')" \
+                "https://xray.cloud.getxray.app/api/v2/graphql")
 
-                echo "HTTP status: $HTTP_CODE"
-                echo ""
+              echo "HTTP status: $HTTP_CODE"
+              echo ""
 
-                echo "=== Raw Xray Response ==="
-                cat xray-test-runs.json
-                echo ""
+              echo "=== Raw Xray Response ==="
+              cat xray-test-runs.json
+              echo ""
 
-                echo "=== Parsed Response ==="
-                jq . xray-test-runs.json 2>/dev/null || true
-                echo ""
+              echo "=== Parsed Response ==="
+              jq . xray-test-runs.json 2>/dev/null || true
+              echo ""
 
-                echo "=== Test Run Summary ==="
+              echo "=== Test Run Summary ==="
 
-                jq -r '
-                  .data.getTestRuns.results[]? |
-                  "Test Run ID: \(.id) | Test issue ID: \(.test.issueId) | Status: \(status.name)"
-                ' xray-test-runs.json 2>/dev/null || true
+              jq -r '
+                .data.getTestRuns.results[]? |
+                "Test Run ID: \(.id) | Test issue ID: \(.test.issueId) | Status: \(status.name)"
+              ' xray-test-runs.json 2>/dev/null || true
 
-                echo ""
+              echo ""
 
-                echo "=== Test Run Details ==="
+              echo "=== Test Run Details ==="
 
-                jq -r '
-                  .data.getTestRuns.results[]? |
+              jq -r '
+                .data.getTestRuns.results[]? |
 
-                  "========================================",
-                  "Test Run ID: \(.id)",
-                  "Test issue ID: \(.test.issueId)",
+                "========================================",
+                "Test Run ID: \(.id)",
+                "Test issue ID: \(.test.issueId)",
+                "Status: \(status.name)",
+                "----------------------------------------",
+
+                (.steps[]? |
+                  "Step ID: \(.id)",
                   "Status: \(status.name)",
-                  "----------------------------------------",
+                  "Action: \(.action // "(none)")",
+                  "Data: \(.data // "(none)")",
+                  "Result: \(.result // "(none)")",
+                  "Actual Result: \(.actualResult // "(none)")",
+                  "Comment: \(.comment // "(none)")",
+                  ""
+                )
+              ' xray-test-runs.json 2>/dev/null || true
 
-                  (.steps[]? |
-                    "Step ID: \(.id)",
-                    "Status: \(status.name)",
-                    "Action: \(.action // "(none)")",
-                    "Data: \(.data // "(none)")",
-                    "Result: \(.result // "(none)")",
-                    "Actual Result: \(.actualResult // "(none)")",
-                    "Comment: \(.comment // "(none)")",
-                    ""
-                  )
-                ' xray-test-runs.json 2>/dev/null || true
+              echo ""
+              echo "=== Diagnostic complete ==="
 
-                echo ""
-                echo "=== Diagnostic complete ==="
 
   
 
