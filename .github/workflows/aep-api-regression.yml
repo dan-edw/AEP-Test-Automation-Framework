@@ -394,6 +394,7 @@ jobs:
         shell: bash
         env:
           XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
+          XRAY_PROJECT_KEY: ${{ secrets.XRAY_PROJECT_KEY }}
         run: |
           set +e
 
