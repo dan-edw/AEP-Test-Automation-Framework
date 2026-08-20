@@ -405,6 +405,11 @@ jobs:
             exit 1
           fi
 
+          if [ -z "$XRAY_PROJECT_KEY" ]; then
+            echo "ERROR: XRAY_PROJECT_KEY is empty"
+            exit 1
+          fi
+
           if [ ! -f "test-results.xml" ]; then
             echo "ERROR: test-results.xml does not exist"
             exit 1
@@ -414,6 +419,11 @@ jobs:
             echo "ERROR: xray-test-results.json does not exist"
             exit 1
           fi
+
+          echo "XRAY_TOKEN is present"
+          echo "XRAY_PROJECT_KEY is present"
+          echo "Project: $XRAY_PROJECT_KEY"
+
 
           echo ""
           echo "=== JUnit file ==="
@@ -434,6 +444,20 @@ jobs:
           echo ""
           echo "=== Importing JUnit results into Xray ==="
 
+          if [ -z "$XRAY_PROJECT_KEY" ]; then
+            echo "ERROR: XRAY_PROJECT_KEY is empty"
+            echo "Check that the GitHub secret exists and is mapped into the job environment."
+            exit 1
+          fi
+
+          echo "Xray project key: $XRAY_PROJECT_KEY"
+          echo "JUnit file: $(pwd)/test-results.xml"
+
+          XRAY_IMPORT_URL="https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=$XRAY_PROJECT_KEY"
+
+          echo "Import endpoint:"
+          echo "$XRAY_IMPORT_URL"
+
           HTTP_CODE=$(curl -s \
             -o xray-import-response.json \
             -w "%{http_code}" \
@@ -441,8 +465,9 @@ jobs:
             -H "Authorization: Bearer $XRAY_TOKEN" \
             -H "Content-Type: text/xml" \
             --data-binary "@$(pwd)/test-results.xml" \
-            "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=${{ vars.XRAY_PROJECT_KEY }}")
+            "$XRAY_IMPORT_URL")
 
+          echo ""
           echo "HTTP status: $HTTP_CODE"
 
           echo ""
@@ -450,9 +475,14 @@ jobs:
           cat xray-import-response.json
 
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo ""
             echo "ERROR: Xray JUnit import failed"
             exit 1
           fi
+
+          echo ""
+          echo "SUCCESS: JUnit results imported into Xray"
+
 
           # --------------------------------------------------
           # b. Extract Test Execution key
