@@ -522,10 +522,11 @@ jobs:
                 issueId
                 jira(fields: ["key", "summary"])
               }
-             }
             }
-            EOF
-            )
+          }
+          EOF
+          )
+
 
             echo "=== Execution GraphQL Query ==="
             echo "$EXEC_QUERY"
@@ -581,20 +582,16 @@ jobs:
                 start: 0
               ) {
                 total
-
                 results {
                   id
-
                   status {
                     name
                     description
                   }
-
                   test {
                     issueId
                     jira(fields: ["key", "summary"])
                   }
-
                   testExecution {
                     issueId
                   }
@@ -603,6 +600,7 @@ jobs:
             }
             EOF
             )
+
 
             echo "=== Test Run GraphQL Query ==="
             echo "$RUN_QUERY"
@@ -726,183 +724,184 @@ jobs:
               if [ "$TEST_STATUS" = "FAIL" ]; then
 
                 COMMENT=$(cat <<EOF
-                Jira Test: $TEST_KEY
-                Xray Test Run: $TEST_RUN_ID
+              Jira Test: $TEST_KEY
+              Xray Test Run: $TEST_RUN_ID
 
-                Status:
-                FAILED
+              Status:
+              FAILED
 
-                Actual Result:
-                The Postman request failed an assertion.
+              Actual Result:
+              The Postman request failed an assertion.
 
-                Request:
-                $METHOD $REQUEST_URL
+              Request:
+              $METHOD $REQUEST_URL
 
-                Expected HTTP status:
-                ${EXPECTED_STATUS:-N/A}
+              Expected HTTP status:
+              ${EXPECTED_STATUS:-N/A}
 
-                Actual HTTP status:
-                ${ACTUAL_STATUS:-N/A}
+              Actual HTTP status:
+              ${ACTUAL_STATUS:-N/A}
 
-                Assertion:
-                ${ASSERTION:-N/A}
+              Assertion:
+              ${ASSERTION:-N/A}
 
-                Failure Details:
-                ${FAILURE_MESSAGE:-Postman test failed}
-                EOF
-                )
+              Failure Details:
+              ${FAILURE_MESSAGE:-Postman test failed}
+              EOF
+              )
 
-                    elif [ "$TEST_STATUS" = "ERROR" ]; then
+              elif [ "$TEST_STATUS" = "ERROR" ]; then
 
-                      COMMENT=$(cat <<EOF
-                Jira Test: $TEST_KEY
-                Xray Test Run: $TEST_RUN_ID
+                COMMENT=$(cat <<EOF
+              Jira Test: $TEST_KEY
+              Xray Test Run: $TEST_RUN_ID
 
-                Status:
-                ERROR
+              Status:
+              ERROR
 
-                Actual Result:
-                The Postman request could not be executed or no execution result was available.
+              Actual Result:
+              The Postman request could not be executed or no execution result was available.
 
-                Request:
-                $METHOD $REQUEST_URL
+              Request:
+              $METHOD $REQUEST_URL
 
-                Failure Details:
-                ${FAILURE_MESSAGE:-No Postman execution result was available.}
-                EOF
-                )
+              Failure Details:
+              ${FAILURE_MESSAGE:-No Postman execution result was available.}
+              EOF
+              )
 
-                    else
+              else
 
-                      COMMENT=$(cat <<EOF
-                Jira Test: $TEST_KEY
-                Xray Test Run: $TEST_RUN_ID
+                COMMENT=$(cat <<EOF
+              Jira Test: $TEST_KEY
+              Xray Test Run: $TEST_RUN_ID
 
-                Status:
-                PASSED
+              Status:
+              PASSED
 
-                Actual Result:
-                The Postman request completed successfully and all captured assertions passed.
+              Actual Result:
+              The Postman request completed successfully and all captured assertions passed.
 
-                Request:
-                $METHOD $REQUEST_URL
+              Request:
+              $METHOD $REQUEST_URL
 
-                Expected HTTP status:
-                ${EXPECTED_STATUS:-N/A}
+              Expected HTTP status:
+              ${EXPECTED_STATUS:-N/A}
 
-                Actual HTTP status:
-                ${ACTUAL_STATUS:-N/A}
+              Actual HTTP status:
+              ${ACTUAL_STATUS:-N/A}
 
-                Assertion Result:
-                All captured assertions passed successfully.
-                EOF
-                )
+              Assertion Result:
+              All captured assertions passed successfully.
+              EOF
+              )
 
-                    fi
+              fi
 
-                    # ------------------------------------------------
-                    # i. Escape comment as GraphQL string
-                    # ------------------------------------------------
 
-                    COMMENT_JSON=$(printf '%s' "$COMMENT" | jq -Rs .)
+              # ------------------------------------------------
+              # i. Escape comment as GraphQL string
+              # ------------------------------------------------
 
-                    MUTATION=$(cat <<EOF
-                    mutation {
-                      updateTestRunComment(
-                        id: "$TEST_RUN_ID"
-                        comment: $COMMENT_JSON
-                      )
-                    }
-                    EOF
-                    )
+              COMMENT_JSON=$(printf '%s' "$COMMENT" | jq -Rs .)
 
-                    echo ""
-                    echo "=== Updating Xray Test Run $TEST_RUN_ID ==="
-
-                    echo "Mutation:"
-                    echo "$MUTATION"
-
-                    HTTP_CODE=$(curl -s \
-                      -o xray-update-response.json \
-                      -w "%{http_code}" \
-                      -X POST \
-                      -H "Authorization: Bearer $XRAY_TOKEN" \
-                      -H "Content-Type: application/json" \
-                      --data "$(jq -n \
-                        --arg query "$MUTATION" \
-                        '{query: $query}')" \
-                      "https://xray.cloud.getxray.app/api/v2/graphql")
-
-                    echo "HTTP status: $HTTP_CODE"
-
-                    echo ""
-                    echo "Xray update response:"
-                    cat xray-update-response.json
-
-                    # ------------------------------------------------
-                    # j. Check HTTP response
-                    # ------------------------------------------------
-
-                    if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-
-                      echo ""
-                      echo "ERROR: HTTP failure updating Xray Test Run $TEST_RUN_ID"
-
-                      FAILED_UPDATE_COUNT=$((FAILED_UPDATE_COUNT + 1))
-
-                      continue
-
-                    fi
-
-                    # ------------------------------------------------
-                    # k. Check GraphQL errors
-                    # ------------------------------------------------
-
-                    if jq -e '.errors' xray-update-response.json >/dev/null 2>&1; then
-
-                      echo ""
-                      echo "ERROR: GraphQL failure updating Xray Test Run $TEST_RUN_ID"
-
-                      jq '.errors' xray-update-response.json
-
-                      FAILED_UPDATE_COUNT=$((FAILED_UPDATE_COUNT + 1))
-
-                    else
-
-                      echo ""
-                      echo "SUCCESS: Updated Xray Test Run $TEST_RUN_ID"
-
-                      UPDATED_COUNT=$((UPDATED_COUNT + 1))
-
-                    fi
-
-                  done < <(
-                    jq -c '.tests[]' xray-test-results.json
+              MUTATION=$(cat <<EOF
+                mutation {
+                  updateTestRunComment(
+                    id: "$TEST_RUN_ID"
+                    comment: $COMMENT_JSON
                   )
+                }
+                EOF
+                )
 
-                  # --------------------------------------------------
-                  # l. Final summary
-                  # --------------------------------------------------
+                echo ""
+                echo "=== Updating Xray Test Run $TEST_RUN_ID ==="
+
+                echo "Mutation:"
+                echo "$MUTATION"
+
+                HTTP_CODE=$(curl -s \
+                  -o xray-update-response.json \
+                  -w "%{http_code}" \
+                  -X POST \
+                  -H "Authorization: Bearer $XRAY_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  --data "$(jq -n \
+                  --arg query "$MUTATION" \
+                  '{query: $query}')" \
+                  "https://xray.cloud.getxray.app/api/v2/graphql")
+
+                echo "HTTP status: $HTTP_CODE"
+
+                echo ""
+                echo "Xray update response:"
+                cat xray-update-response.json
+
+                # ------------------------------------------------
+                # j. Check HTTP response
+                # ------------------------------------------------
+
+                if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
 
                   echo ""
-                  echo "========================================"
-                  echo "=== Xray Update Summary ==="
-                  echo "========================================"
-                  echo "Successfully updated: $UPDATED_COUNT"
-                  echo "Failed updates:       $FAILED_UPDATE_COUNT"
-                  echo "Total Test Runs:      $TEST_RUN_COUNT"
-                  echo "========================================"
+                  echo "ERROR: HTTP failure updating Xray Test Run $TEST_RUN_ID"
 
-                  if [ "$FAILED_UPDATE_COUNT" -gt 0 ]; then
+                  FAILED_UPDATE_COUNT=$((FAILED_UPDATE_COUNT + 1))
 
-                    echo ""
-                    echo "ERROR: One or more Xray Test Run updates failed."
+                  continue
 
-                    exit 1
-                  fi
+                fi
+
+                # ------------------------------------------------
+                # k. Check GraphQL errors
+                # ------------------------------------------------
+
+                if jq -e '.errors' xray-update-response.json >/dev/null 2>&1; then
 
                   echo ""
-                  echo "All Xray Test Runs were updated successfully."
+                  echo "ERROR: GraphQL failure updating Xray Test Run $TEST_RUN_ID"
+
+                  jq '.errors' xray-update-response.json
+
+                  FAILED_UPDATE_COUNT=$((FAILED_UPDATE_COUNT + 1))
+
+                else
+
+                  echo ""
+                  echo "SUCCESS: Updated Xray Test Run $TEST_RUN_ID"
+
+                  UPDATED_COUNT=$((UPDATED_COUNT + 1))
+
+                fi
+
+                done < <(
+                  jq -c '.tests[]' xray-test-results.json
+                )
+
+                # --------------------------------------------------
+                # l. Final summary
+                # --------------------------------------------------
+
+                echo ""
+                echo "========================================"
+                echo "=== Xray Update Summary ==="
+                echo "========================================"
+                echo "Successfully updated: $UPDATED_COUNT"
+                echo "Failed updates:       $FAILED_UPDATE_COUNT"
+                echo "Total Test Runs:      $TEST_RUN_COUNT"
+                echo "========================================"
+
+                if [ "$FAILED_UPDATE_COUNT" -gt 0 ]; then
+
+                  echo ""
+                  echo "ERROR: One or more Xray Test Run updates failed."
+
+                  exit 1
+                fi
+
+                echo ""
+                echo "All Xray Test Runs were updated successfully."
 
 
 
