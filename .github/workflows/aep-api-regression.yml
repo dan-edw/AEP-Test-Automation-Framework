@@ -1038,7 +1038,7 @@ jobs:
           JIRA_RESPONSE=$(curl -s \
             -H "Authorization: Basic $JIRA_AUTH" \
             -H "Accept: application/json" \
-            "https://uat.atlassian.net/rest/api/2/issue/$TEST_KEY")
+            "https://ifl-uat.atlassian.net/rest/api/2/issue/$TEST_KEY")
 
           ISSUE_ID=$(echo "$JIRA_RESPONSE" | jq -r '.id // empty')
 
