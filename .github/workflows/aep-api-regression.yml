@@ -501,7 +501,7 @@ jobs:
             exit 1
           fi
 
-          echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
+          echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_ENV"
 
           # --------------------------------------------------
           # c. Find Xray Test Execution internal ID
@@ -565,7 +565,7 @@ jobs:
               exit 1
             fi
 
-            echo "XRAY_EXECUTION_ID=$XRAY_EXECUTION_ID" >> "$GITHUB_OUTPUT"
+            echo "XRAY_EXECUTION_ID=$XRAY_EXECUTION_ID" >> "$GITHUB_ENV"
 
             # --------------------------------------------------
             # d. Get Test Runs belonging to this execution
