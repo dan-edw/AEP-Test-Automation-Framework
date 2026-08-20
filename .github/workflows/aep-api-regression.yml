@@ -916,7 +916,7 @@ jobs:
         shell: bash
         env:
           XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
-          XRAY_EXECUTION_ID: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_ID }}
+          XRAY_EXECUTION_ID: ${{ env.XRAY_EXECUTION_ID }}
           JIRA_AUTH: ${{ secrets.JIRA_AUTH }}
         run: |
           set +e
