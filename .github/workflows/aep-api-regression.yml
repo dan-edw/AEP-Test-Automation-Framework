@@ -467,17 +467,24 @@ jobs:
           # --------------------------------------------------
 
           echo ""
+
           echo "=== Getting Xray Test Execution ID ==="
 
+          JQL="key = $XRAY_EXECUTION_KEY"
+
           EXEC_QUERY=$(jq -n \
-            --arg key "$XRAY_EXECUTION_KEY" \
+            --arg jql "$JQL" \
             '{
               query: (
-                "query { getTestExecutions(jql: \"key = " +
-                ($key | @json) +
-                "\", limit: 1, start: 0) { total results { issueId } } }"
+                "query { getTestExecutions(jql: " +
+                ($jql | @json) +
+                ", limit: 1, start: 0) { total results { issueId } } }"
               )
             }')
+
+          echo "Execution GraphQL request:"
+          echo "$EXEC_QUERY"
+
 
           echo "Execution GraphQL request:"
           echo "$EXEC_QUERY"
