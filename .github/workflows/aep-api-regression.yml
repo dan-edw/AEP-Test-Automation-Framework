@@ -571,10 +571,9 @@ jobs:
             echo ""
             echo "=== Getting Xray Test Runs ==="
 
-            RUN_QUERY=$(cat <<EOF
-            {
+            RUN_QUERY='{
               getTestRuns(
-                testExecIssueIds: ["$XRAY_EXECUTION_ID"]
+                testExecIssueIds: ["'"$XRAY_EXECUTION_ID"'"]
                 limit: 100
                 start: 0
               ) {
@@ -594,10 +593,7 @@ jobs:
                   }
                 }
               }
-            }
-            EOF
-            )
-
+            }'
 
             echo "=== Test Run GraphQL Query ==="
             echo "$RUN_QUERY"
@@ -623,6 +619,9 @@ jobs:
               echo "ERROR: Could not retrieve Xray Test Runs"
               exit 1
             fi
+
+
+            
 
             # --------------------------------------------------
             # e. Validate we received Test Runs
