@@ -510,22 +510,19 @@ jobs:
           echo ""
           echo "=== Getting Xray Test Execution internal ID ==="
 
-          EXEC_QUERY=$(cat <<EOF
-          {
+          EXEC_QUERY='{
             getTestExecutions(
-              jql: "key = \\"$XRAY_EXECUTION_KEY\\""
+              jql: "key = \"'"$XRAY_EXECUTION_KEY"'\""
               limit: 1
               start: 0
             ) {
               total
               results {
                 issueId
-                jira(fields: ["key", "summary"])
               }
             }
-          }
-          EOF
-          )
+          }'
+
 
 
             echo "=== Execution GraphQL Query ==="
@@ -916,7 +913,6 @@ jobs:
         shell: bash
         env:
           XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
-          XRAY_EXECUTION_ID: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_ID }}
           JIRA_AUTH: ${{ secrets.JIRA_AUTH }}
         run: |
           set +e
@@ -938,10 +934,10 @@ jobs:
           # Get all Test Runs for this execution
           # --------------------------------------------------
 
+          echo ""
           echo "=== Getting Xray Test Runs ==="
 
-          RUN_QUERY='
-          {
+          RUN_QUERY='{
             getTestRuns(
               testExecIssueIds: ["'"$XRAY_EXECUTION_ID"'"]
               limit: 100
@@ -952,9 +948,11 @@ jobs:
                 id
                 status {
                   name
+                  description
                 }
                 test {
                   issueId
+                  jira(fields: ["key", "summary"])
                 }
                 testExecution {
                   issueId
@@ -962,6 +960,10 @@ jobs:
               }
             }
           }'
+
+          echo "=== Test Run GraphQL Query ==="
+          echo "$RUN_QUERY"
+
 
           curl -s \
             -X POST \
@@ -1207,7 +1209,6 @@ jobs:
         env:
           XRAY_TOKEN: ${{ env.XRAY_TOKEN }}
           XRAY_EXECUTION_KEY: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_KEY }}
-          XRAY_EXECUTION_ID: ${{ steps.xray-publish.outputs.XRAY_EXECUTION_ID }}
         shell: bash
         
         run: |
