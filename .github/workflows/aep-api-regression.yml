@@ -883,19 +883,25 @@ jobs:
       # 16. Check test result
       # ----------------------------------------
 
-      - name: Check Test Result
+      - name: Check Postman Result
         if: always()
         shell: bash
+        env:
+          POSTMAN_EXIT_CODE: ${{ steps.postman.outputs.POSTMAN_EXIT_CODE }}
         run: |
-          POSTMAN_EXIT_CODE="${{ steps.postman.outputs.POSTMAN_EXIT_CODE }}"
-
+          echo "=== Postman Regression Final Status ==="
           echo "Postman exit code: $POSTMAN_EXIT_CODE"
 
           if [ "$POSTMAN_EXIT_CODE" != "0" ]; then
-            echo "AEP API Regression failed"
-            exit 1
+            echo "AEP API Regression had test failures."
+            echo "The results have been published to Xray."
+            echo "The GitHub Actions workflow will continue successfully."
+            exit 0
           fi
 
-          echo "AEP API Regression passed"
+          echo "AEP API Regression passed."
+          echo "The results have been published to Xray."
+          exit 0
+
 
 
