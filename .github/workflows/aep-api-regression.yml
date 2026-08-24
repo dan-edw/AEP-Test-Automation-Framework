@@ -463,70 +463,24 @@ jobs:
           fi
 
           # --------------------------------------------------
-          # Get internal Xray execution ID
+          # Get Xray Test Execution Internal ID
           # --------------------------------------------------
 
           echo ""
-
           echo "=== Getting Xray Test Execution ID ==="
 
-          JQL="key = $XRAY_EXECUTION_KEY"
-
-          EXEC_QUERY=$(jq -n \
-            --arg jql "$JQL" \
-            '{
-              query: (
-                "query { getTestExecutions(jql: " +
-                ($jql | @json) +
-                ", limit: 1, start: 0) { total results { issueId } } }"
-              )
-            }')
-
-          echo "Execution GraphQL request:"
-          echo "$EXEC_QUERY"
-
-
-          echo "Execution GraphQL request:"
-          echo "$EXEC_QUERY"
-
-          HTTP_CODE=$(curl -s \
-            -o xray-execution.json \
-            -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer ${XRAY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data "$EXEC_QUERY" \
-            "https://xray.cloud.getxray.app/api/v2/graphql")
-
-          echo ""
-          echo "HTTP status: $HTTP_CODE"
-          echo "=== Execution Response ==="
-          cat xray-execution.json
-
-          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            echo "ERROR: Xray execution query failed"
-            exit 1
-          fi
-
-          if jq -e '.errors? | length > 0' xray-execution.json >/dev/null 2>&1; then
-            echo "ERROR: Xray returned GraphQL errors while getting execution"
-            jq '.errors' xray-execution.json
-            exit 1
-          fi
-
-          XRAY_EXECUTION_ID=$(jq -r \
-            '.data.getTestExecutions.results[0].issueId // empty' \
-            xray-execution.json)
+          # The JUnit import response already contains the internal Xray/Jira issue ID.
+          XRAY_EXECUTION_ID=$(jq -r '.id // empty' xray-import-response.json)
 
           if [ -z "$XRAY_EXECUTION_ID" ]; then
-            echo "ERROR: Could not find Xray execution internal ID"
+            echo "ERROR: Xray execution internal ID was not returned by import"
             exit 1
           fi
 
-          echo ""
+          echo "Xray Test Execution: $XRAY_EXECUTION_KEY"
           echo "Xray execution internal ID: $XRAY_EXECUTION_ID"
 
-          # Save both values for later steps
+          # Save both values for the next GitHub Actions step
           echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
           echo "XRAY_EXECUTION_ID=$XRAY_EXECUTION_ID" >> "$GITHUB_OUTPUT"
 
@@ -534,6 +488,7 @@ jobs:
           echo "=== Xray execution information saved ==="
           echo "Execution key: $XRAY_EXECUTION_KEY"
           echo "Execution ID: $XRAY_EXECUTION_ID"
+
 
 
 
