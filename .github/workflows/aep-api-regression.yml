@@ -466,30 +466,24 @@ jobs:
           # Get Xray Test Execution Internal ID
           # --------------------------------------------------
 
-          echo ""
-          echo "=== Getting Xray Test Execution ID ==="
-
-          # The JUnit import response already contains the internal Xray/Jira issue ID.
           XRAY_EXECUTION_ID=$(jq -r '.id // empty' xray-import-response.json)
 
+          echo ""
+          echo "=== Xray Test Execution Information ==="
+          echo "Execution key: $XRAY_EXECUTION_KEY"
+          echo "Execution ID:  $XRAY_EXECUTION_ID"
+
           if [ -z "$XRAY_EXECUTION_ID" ]; then
-            echo "ERROR: Xray execution internal ID was not returned by import"
+            echo "ERROR: Xray import did not return an execution ID"
             exit 1
           fi
 
-          echo "Xray Test Execution: $XRAY_EXECUTION_KEY"
-          echo "Xray execution internal ID: $XRAY_EXECUTION_ID"
-
-          # Save both values for the next GitHub Actions step
+          # Save values for later steps
           echo "XRAY_EXECUTION_KEY=$XRAY_EXECUTION_KEY" >> "$GITHUB_OUTPUT"
           echo "XRAY_EXECUTION_ID=$XRAY_EXECUTION_ID" >> "$GITHUB_OUTPUT"
 
           echo ""
           echo "=== Xray execution information saved ==="
-          echo "Execution key: $XRAY_EXECUTION_KEY"
-          echo "Execution ID: $XRAY_EXECUTION_ID"
-
-
 
 
 
@@ -508,35 +502,39 @@ jobs:
         run: |
           set +e
 
-          echo "=== Updating Xray Test Run Results ==="
-          echo "Execution ID: $XRAY_EXECUTION_ID"
+            echo "=== Updating Xray Test Run Results ==="
+            echo "Execution ID: $XRAY_EXECUTION_ID"
 
-          if [ -z "$XRAY_TOKEN" ]; then
-            echo "ERROR: XRAY_TOKEN is empty"
-            exit 1
-          fi
+            if [ -z "$XRAY_TOKEN" ]; then
+              echo "ERROR: XRAY_TOKEN is empty"
+              exit 1
+            fi
 
-          if [ -z "$XRAY_EXECUTION_ID" ]; then
-            echo "ERROR: XRAY_EXECUTION_ID is empty"
-            exit 1
-          fi
+            if [ -z "$XRAY_EXECUTION_ID" ]; then
+              echo "ERROR: XRAY_EXECUTION_ID is empty"
+              exit 1
+            fi
 
-          # --------------------------------------------------
-          # Get Test Runs
-          # --------------------------------------------------
+            echo ""
+            echo "=== Getting Xray Test Runs ==="
 
-          echo ""
-          echo "=== Getting Xray Test Runs ==="
-
-          RUN_QUERY=$(jq -n \
-            --arg executionId "$XRAY_EXECUTION_ID" \
-            '{
-              query: (
-                "query { getTestRuns(testExecIssueIds: [\"" +
-                $executionId +
-                "\"], limit: 100, start: 0) { total results { id status { name } test { issueId jira(fields: [\"key\"]) } } } }"
-              )
-            }')
+            RUN_QUERY=$(jq -n \
+              --arg executionId "$XRAY_EXECUTION_ID" \
+              '{
+                query: (
+                  "query { getTestRuns(testExecIssueIds: [" +
+                  ($executionId | @json) +
+                  "], limit: 100, start: 0) { " +
+                  "total " +
+                  "results { " +
+                  "id " +
+                  "status { name } " +
+                  "test { issueId jira(fields: [\"key\"]) } " +
+                  "testExecution { issueId } " +
+                  "} " +
+                  "} }"
+                )
+              }')
 
             echo "Test Run GraphQL request:"
             echo "$RUN_QUERY"
@@ -554,6 +552,7 @@ jobs:
             echo "HTTP status: $HTTP_CODE"
             echo "=== Xray Test Runs ==="
             jq . xray-test-runs.json
+
 
             if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
               echo "ERROR: Could not retrieve Xray Test Runs"
