@@ -243,17 +243,44 @@ function analyseExecution(execution) {
   /*
    * Expected / actual HTTP status
    */
-  const expectedActual = section.match(
-    /expected response to have status code\s+(\d+)\s+but got\s+(\d+)/i
+  /*
+ * Expected / actual HTTP status
+ *
+ * For failed assertions, Postman reports both expected and actual.
+ * For passed assertions, the assertion itself contains the expected
+ * status, e.g. "Pass Status code is 200".
+ */
+
+const expectedActual = section.match(
+  /expected response to have status code\s+(\d+)\s+but got\s+(\d+)/i
+);
+
+let expectedStatus = expectedActual?.[1] || '';
+
+const actualStatus =
+  expectedActual?.[2] ||
+  execution.status ||
+  '';
+
+/*
+ * If the test passed, try to extract the expected status
+ * from the successful assertion.
+ *
+ * Examples:
+ * Pass Status code is 200
+ * Pass Status code is 201
+ * Pass Status code is 204
+ */
+if (!expectedStatus) {
+  const passedStatusMatch = section.match(
+    /Pass\s+Status code is\s+(\d+)/i
   );
 
-  const expectedStatus =
-    expectedActual?.[1] || '';
+  if (passedStatusMatch) {
+    expectedStatus = passedStatusMatch[1];
+  }
+}
 
-  const actualStatus =
-    expectedActual?.[2] ||
-    execution.status ||
-    '';
 
   /*
    * Assertion name
