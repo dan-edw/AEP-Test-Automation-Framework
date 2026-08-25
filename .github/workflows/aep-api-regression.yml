@@ -618,6 +618,16 @@ jobs:
               METHOD=$(echo "$TEST_RESULT" | jq -r '.method // ""')
               REQUEST_URL=$(echo "$TEST_RESULT" | jq -r '.requestUrl // ""')
 
+              # Build a readable list of all Postman assertions
+              ASSERTIONS=$(echo "$TEST_RESULT" | jq -r '
+                if (.assertions // []) | length > 0 then
+                  (.assertions | map("\(.status): \(.name)") | join("\n"))
+                else
+                  "No assertion details captured"
+                end
+              ')
+
+
               TEST_RUN_ID=$(jq -r \
                 --arg key "$TEST_KEY" \
                 '.data.getTestRuns.results[]
@@ -660,10 +670,12 @@ jobs:
                 "Expected HTTP status: ${EXPECTED_STATUS:-N/A}" \
                 "Actual HTTP status: ${ACTUAL_STATUS:-N/A}" \
                 "" \
-                "Assertion: ${ASSERTION:-N/A}" \
+                "Assertions:" \
+                "$ASSERTIONS" \
                 "" \
                 "Failure Details:" \
                 "${FAILURE_MESSAGE:-Postman test failed}")
+
 
             else
 
@@ -682,8 +694,9 @@ jobs:
                 "Expected HTTP status: ${EXPECTED_STATUS:-N/A}" \
                 "Actual HTTP status: ${ACTUAL_STATUS:-N/A}" \
                 "" \
-                "Assertion Result:" \
-                "All captured assertions passed successfully.")
+                "Assertions:" \
+                "$ASSERTIONS")
+
 
             fi
 
