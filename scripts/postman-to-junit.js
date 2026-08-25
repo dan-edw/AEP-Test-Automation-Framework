@@ -207,31 +207,128 @@ for (let i = 0; i < executions.length; i++) {
 
 /*
  * ------------------------------------------------------------
+ * Parse Newman final failure summary
+ *
+ * Newman reports assertion failures at the END of the run,
+ * rather than inside the individual request execution section.
+ *
+ * Example:
+ *
+ * AssertionError Status code is 200
+ * expected response to have status code 400 but got 200
+ * at assertion:0 in test-script
+ * inside "CUTECH-2865 - Retrieve a schema"
+ * ------------------------------------------------------------
+ */
+
+function parseNewmanFailures(output) {
+  const failures = new Map();
+
+  const failureRegex =
+    /AssertionError\s+([^\r\n]+)\s*\r?\n\s*expected response to have status code\s+(\d+)\s+but got\s+(\d+)[\s\S]*?inside\s+"([^"]+)"/gi;
+
+  let match;
+
+  while ((match = failureRegex.exec(output)) !== null) {
+    const assertion = match[1].trim();
+    const expectedStatus = match[2];
+    const actualStatus = match[3];
+    const fullName = match[4].trim();
+
+    failures.set(fullName, {
+      assertion,
+      expectedStatus,
+      actualStatus,
+      failureMessage:
+        `${assertion} - expected ${expectedStatus} but got ${actualStatus}`,
+    });
+  }
+
+  return failures;
+}
+
+const newmanFailures = parseNewmanFailures(output);
+
+console.log('');
+console.log('=== Newman Failure Summary ===');
+
+if (newmanFailures.size === 0) {
+  console.log('No Newman assertion failures found.');
+} else {
+  for (const [fullName, failure] of newmanFailures.entries()) {
+    console.log(`FAIL ${fullName}`);
+    console.log(`  Assertion: ${failure.assertion}`);
+    console.log(`  Expected: ${failure.expectedStatus}`);
+    console.log(`  Actual:   ${failure.actualStatus}`);
+  }
+}
+
+
+
+/*
+ * ------------------------------------------------------------
  * Analyse one execution
  * ------------------------------------------------------------
  */
 
-function analyseExecution(execution) {
+function analyseExecution(execution, test) {
   const section = execution.section;
 
   /*
-   * Assertion failures
+   * ----------------------------------------------------------
+   * Check whether this specific test appears in Newman's
+   * final failure summary.
+   * ----------------------------------------------------------
    */
-  const assertionFailures = [
-    ...section.matchAll(
-      /AssertionError\s+([^\r\n]+)[\s\S]*?(?=\n\s*\d+\.\s+AssertionError|\s*$)/gi
-    ),
-  ];
 
-  const hasAssertionFailure =
-    assertionFailures.length > 0 ||
-    /expected response to have status code\s+\d+\s+but got\s+\d+/i.test(
-      section
-    );
+  const newmanFailure = newmanFailures.get(test.fullName);
 
   /*
-   * HTTP failures
+   * ----------------------------------------------------------
+   * Detect failed assertions inside the request section.
+   *
+   * Newman displays failed assertions as:
+   *
+   * 1. Status code is 200
+   * 2. Status code is 200
+   *
+   * Successful assertions are displayed as:
+   *
+   * Pass Status code is 200
+   *
+   * Therefore a numbered assertion is considered a failure.
+   * ----------------------------------------------------------
    */
+
+  const failedAssertionLines = [];
+
+  for (const line of section.split(/\r?\n/)) {
+    const fail = line.match(
+      /^\s*\d+\.\s+(.+?)\s*$/
+    );
+
+    if (
+      fail &&
+      !/^Root\s+/i.test(fail[1]) &&
+      !/^AssertionError\s+/i.test(fail[1])
+    ) {
+      failedAssertionLines.push(fail[1].trim());
+    }
+  }
+
+  const hasAssertionFailure =
+    !!newmanFailure ||
+    failedAssertionLines.length > 0;
+
+  /*
+   * ----------------------------------------------------------
+   * HTTP failures
+   *
+   * A 4xx/5xx response is considered an HTTP failure only when
+   * it wasn't already represented by an assertion failure.
+   * ----------------------------------------------------------
+   */
+
   const hasHttpFailure =
     /(?:^|\s)\[(?:4\d\d|5\d\d)\s+[^\]]+\]/.test(
       section
@@ -241,74 +338,120 @@ function analyseExecution(execution) {
     hasAssertionFailure || hasHttpFailure;
 
   /*
+   * ----------------------------------------------------------
    * Expected / actual HTTP status
+   *
+   * First preference:
+   * Newman final failure summary.
+   *
+   * This is the authoritative source for failed assertions.
+   * ----------------------------------------------------------
    */
-  const expectedActual = section.match(
-  /expected response to have status code\s+(\d+)\s+but got\s+(\d+)/i
-);
 
-let expectedStatus =
-  expectedActual?.[1] || '';
+  let expectedStatus =
+    newmanFailure?.expectedStatus || '';
 
-const actualStatus =
-  expectedActual?.[2] ||
-  execution.status ||
-  '';
+  let actualStatus =
+    newmanFailure?.actualStatus ||
+    execution.status ||
+    '';
 
-/*
-* For passing tests, Postman does not output an
-* "expected X but got Y" message.
-*
-* Instead, the successful assertion appears as:
-*
-* Pass Status code is 200
-*
-* Extract the expected status from that assertion.
-*/
-if (!expectedStatus) {
-  const passedStatusAssertion = section.match(
-    /(?:Pass|PASS)\s+Status code is\s+(\d+)/i
-  );
+  /*
+   * ----------------------------------------------------------
+   * Passing tests
+   *
+   * Successful status assertion appears as:
+   *
+   * Pass Status code is 200
+   *
+   * Extract 200 from that line.
+   * ----------------------------------------------------------
+   */
 
-  if (passedStatusAssertion) {
-    expectedStatus = passedStatusAssertion[1];
+  if (!expectedStatus) {
+    const passedStatusAssertion = section.match(
+      /Pass\s+Status code is\s+(\d+)/i
+    );
+
+    if (passedStatusAssertion) {
+      expectedStatus =
+        passedStatusAssertion[1];
+    }
   }
-}
-
 
   /*
+   * ----------------------------------------------------------
    * Assertion name
+   * ----------------------------------------------------------
    */
-  const assertionMatch = section.match(
-    /AssertionError\s+([^\r\n]+)/i
-  );
 
-  const assertion =
-    assertionMatch?.[1]?.trim() || '';
+  let assertion =
+    newmanFailure?.assertion || '';
 
   /*
-   * Failure reason
+   * If Newman did not provide the failure summary, use the
+   * failed assertion line from the request section.
    */
-  let failureMessage = '';
 
-  if (expectedStatus && actualStatus) {
+  if (
+    !assertion &&
+    failedAssertionLines.length > 0
+  ) {
+    assertion =
+      failedAssertionLines[0];
+  }
+
+  /*
+   * ----------------------------------------------------------
+   * Failure reason
+   * ----------------------------------------------------------
+   */
+
+  let failureMessage =
+    newmanFailure?.failureMessage || '';
+
+  if (
+    !failureMessage &&
+    expectedStatus &&
+    actualStatus &&
+    failed
+  ) {
     failureMessage =
       `${assertion || 'Assertion failed'} - ` +
       `expected ${expectedStatus} but got ${actualStatus}`;
-  } else if (hasHttpFailure) {
+  }
+
+  if (
+    !failureMessage &&
+    hasHttpFailure
+  ) {
     failureMessage =
       `HTTP request failed: ` +
       `${execution.status} ${execution.statusText}`;
-  } else if (assertion) {
+  }
+
+  if (
+    !failureMessage &&
+    assertion &&
+    failed
+  ) {
     failureMessage = assertion;
   }
 
   /*
+   * ----------------------------------------------------------
    * Assertions
+   * ----------------------------------------------------------
    */
+
   const assertions = [];
 
   for (const line of section.split(/\r?\n/)) {
+
+    /*
+     * PASS assertion
+     */
+
     const pass = line.match(
       /^\s*Pass\s+(.+?)\s*$/
     );
@@ -322,22 +465,38 @@ if (!expectedStatus) {
       continue;
     }
 
+    /*
+     * FAIL assertion
+     *
+     * Newman prints failed assertions as:
+     *
+     * 1. Status code is 200
+     *
+     * Do not treat Root or AssertionError lines as
+     * assertions.
+     */
+
     const fail = line.match(
-  /^\s*\d+\.\s+(.+?)\s*$/
-);
+      /^\s*\d+\.\s+(.+?)\s*$/
+    );
 
-if (
-  fail &&
-  !/^Root\s+/i.test(fail[1]) &&
-  !/^AssertionError\s+/i.test(fail[1])
-) {
-  assertions.push({
-    status: 'FAIL',
-    name: fail[1].trim(),
-  });
-}
-
+    if (
+      fail &&
+      !/^Root\s+/i.test(fail[1]) &&
+      !/^AssertionError\s+/i.test(fail[1])
+    ) {
+      assertions.push({
+        status: 'FAIL',
+        name: fail[1].trim(),
+      });
+    }
   }
+
+  /*
+   * ----------------------------------------------------------
+   * Return structured result
+   * ----------------------------------------------------------
+   */
 
   return {
     failed,
@@ -348,6 +507,7 @@ if (
     assertions,
   };
 }
+
 
 /*
  * ------------------------------------------------------------
@@ -457,7 +617,7 @@ ${escapeXml(missingMessage)}
   }
 
   const result =
-    analyseExecution(execution);
+  analyseExecution(execution, test);
 
   const status =
     result.failed ? 'FAIL' : 'PASS';
