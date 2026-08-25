@@ -329,19 +329,20 @@ if (!expectedStatus) {
     }
 
     const fail = line.match(
-      /^\s*\d+\.\s+(.+?)\s*$/
-    );
+  /^\s*\d+\.\s+(.+?)\s*$/
+);
 
-    if (
-      fail &&
-      !/^Root\s+/i.test(fail[1])
-    ) {
-      assertions.push({
-        status: 'FAIL',
-        name: fail[1].trim(),
-      });
-    }
-  }
+if (
+  fail &&
+  !/^Root\s+/i.test(fail[1]) &&
+  !/^AssertionError\s+/i.test(fail[1])
+) {
+  assertions.push({
+    status: 'FAIL',
+    name: fail[1].trim(),
+  });
+}
+
 
   return {
     failed,
