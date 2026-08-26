@@ -459,21 +459,6 @@ jobs:
           XRAY_EXECUTION_KEY=$(jq -r '.key // empty' xray-import-response.json)
           XRAY_EXECUTION_ID=$(jq -r '.id // empty' xray-import-response.json)
 
-          # --------------------------------------------------
-          # Set Xray Test Type to Generic
-          # --------------------------------------------------
-
-          echo ""
-          echo "=== Updating Xray Test Types ==="
-
-          # Process each Jira test from the generated Xray results
-          while IFS= read -r TEST_RESULT; do
-
-            TEST_KEY=$(echo "$TEST_RESULT" | jq -r '.testKey')
-
-            echo ""
-            echo "Updating Test Type for $TEST_KEY to Generic"
-
             # --------------------------------------------------
             # Get the Xray Test issue ID from Jira/Xray
             # --------------------------------------------------
@@ -565,7 +550,7 @@ jobs:
             fi
 
             UPDATED_TEST_TYPE=$(jq -r \
-              'data.updateTestType.testType.name // empty' \
+              '.data.updateTestType.testType.name // empty' \
               xray-test-type-response.json)
 
             echo "SUCCESS: $TEST_KEY Test Type updated to ${UPDATED_TEST_TYPE:-Generic}"
@@ -682,7 +667,7 @@ jobs:
             if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
 
               TEST_RUN_COUNT=$(jq -r \
-                'data.getTestRuns.total // 0' \
+                '.data.getTestRuns.total // 0' \
                 xray-test-runs.json)
 
               echo ""
