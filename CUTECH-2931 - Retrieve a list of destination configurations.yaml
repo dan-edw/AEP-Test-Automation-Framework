@@ -1,0 +1,57 @@
+$kind: http-request
+name: CUTECH-2931 - Retrieve a list of destination configurations
+url: https://platform.adobe.io/data/core/activation/authoring/destinations
+method: GET
+headers:
+  Accept: application/json
+  Content-Type: application/json
+  Authorization: Bearer {{ACCESS_TOKEN}}
+  x-api-key: "{{AEP_CLIENT_ID}}"
+  x-gw-ims-org-id: "{{AEP_IMS_ORG}}"
+  x-sandbox-name: "{{AEP_SANDBOX_NAME}}"
+scripts:
+  - type: beforeRequest
+    code: "/** Begin Adobe-provided Pre-Request Scripts **/\r
+
+      // Do not send HTTP Headers with empty variables, as Postman will send the literal variable name\r
+
+      pm.request.forEachHeader(header => {\r
+
+      \    if (header.value.startsWith(\"{{\") && header.value.endsWith(\"}}\")) {\r
+
+      \        if (!pm.variables.get(header.value.substring(2, header.value.length - 2))) { pm.request.headers.remove(header.key); }\r
+
+      \    }\r
+
+      });\r
+
+      \r
+
+      // Do not send HTTP URL Query Parameters with empty variables, as Postman will send the literal variable name\r
+
+      pm.request.url.query.remove(q => { \r
+
+      \    if (q.value.startsWith(\"{{\") && q.value.endsWith(\"}}\")) {\r
+
+      \        return !pm.variables.get(q.value.substring(2, q.value.length - 2));\r
+
+      \    } \r
+
+      });\r
+
+      /** End Adobe-provided Pre-Request Scripts **/"
+    language: text/javascript
+  - type: afterResponse
+    code: "pm.test(\"Status code is 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      pm.test(\"Response is JSON\",function () {\r
+
+      \    pm.response.to.be.json\r
+
+      });"
+    language: text/javascript
+order: 1273865659216959
