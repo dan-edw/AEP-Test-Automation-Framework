@@ -10,7 +10,7 @@ headers:
   x-gw-ims-org-id: "{{AEP_IMS_ORG}}"
   x-sandbox-name: "{{AEP_SANDBOX_NAME}}"
 pathVariables:
-  CONTAINER_ID: tenant
+  CONTAINER_ID: 
   FIELD_GROUP_ID: _ioof.mixins.cc035ce41bc511532e9e89201c376194f107ce9ba009b83
 scripts:
   - type: beforeRequest
@@ -47,7 +47,7 @@ scripts:
   - type: afterResponse
     code: "pm.test(\"Status code is 200\", function () {\r
 
-      \    pm.response.to.have.status(400);\r
+      \    pm.response.to.have.status(200);\r
 
       });\r
 
