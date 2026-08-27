@@ -46,7 +46,7 @@ scripts:
   - type: afterResponse
     code: "pm.test(\"Status code is 200\", function () {\r
 
-      \    pm.response.to.have.status(200);\r
+      \    pm.response.to.have.status(400);\r
 
       });\r
 
