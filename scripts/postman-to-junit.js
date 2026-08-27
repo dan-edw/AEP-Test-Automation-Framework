@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const resultsFile = path.resolve('postman-results.txt');
+const lintResultsFile = path.resolve('postman-lint.txt');
 const collectionDir = path.resolve('postman/collections/aep-regression');
 
 const outputFile = path.resolve('test-results.xml');
@@ -17,9 +18,9 @@ function escapeXml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/>/g, '>')
+    .replace(/"/g, '"')
+    .replace(/'/g, ''');
 }
 
 /*
@@ -53,6 +54,16 @@ if (!fs.statSync(collectionDir).isDirectory()) {
 }
 
 const output = fs.readFileSync(resultsFile, 'utf8');
+
+let lintOutput = '';
+
+if (fs.existsSync(lintResultsFile)) {
+  lintOutput = fs.readFileSync(lintResultsFile, 'utf8');
+} else {
+  console.log(
+    'No postman-lint.txt found. Continuing without collection lint failures.'
+  );
+}
 
 /*
  * ------------------------------------------------------------
@@ -160,6 +171,130 @@ collectionTests.forEach((test, index) => {
 
 /*
  * ------------------------------------------------------------
+ * Parse Postman collection lint failures
+ *
+ * Example:
+ *
+ * CUTECH-2925 - Retrieve a field group.request.yaml:
+ *
+ * error [FMT015]: Invalid input (path: /pathVariables)
+ *
+ * Scanned: 6 | Errors: 1 | Warnings: 0 | 17ms
+ *
+ * The important information is the Jira key and the
+ * corresponding lint error.
+ * ------------------------------------------------------------
+ */
+
+function parseLintFailures(output) {
+  const failures = new Map();
+
+  if (!output) {
+    return failures;
+  }
+
+  const lines = output.split(/\r?\n/);
+
+  let currentKey = null;
+  let currentFile = null;
+  let currentErrors = [];
+
+  function saveCurrentFailure() {
+    if (!currentKey) {
+      return;
+    }
+
+    if (currentErrors.length === 0) {
+      return;
+    }
+
+    failures.set(currentKey, {
+      key: currentKey,
+      file: currentFile || '',
+      message: currentErrors.join('\n').trim(),
+    });
+  }
+
+  for (const line of lines) {
+    /*
+     * Example:
+     *
+     * CUTECH-2925 - Retrieve a field group.request.yaml:
+     */
+
+    const fileMatch = line.match(
+      /^\s*([A-Z][A-Z0-9_]*-\d+)\s+-\s+(.+?\.request\.yaml):\s*$/
+    );
+
+    if (fileMatch) {
+      saveCurrentFailure();
+
+      currentKey = fileMatch[1];
+      currentFile = fileMatch[2];
+      currentErrors = [];
+
+      continue;
+    }
+
+    /*
+     * Example:
+     *
+     * error [FMT015]: Invalid input (path: /pathVariables)
+     */
+
+    const errorMatch = line.match(
+      /^\s*error\s+\[([^\]]+)\]:\s*(.+?)\s*$/
+    );
+
+    if (errorMatch && currentKey) {
+      currentErrors.push(
+        `error [${errorMatch[1]}]: ${errorMatch[2]}`
+      );
+
+      continue;
+    }
+
+    /*
+     * Capture additional lint information if it is part
+     * of the current failure block.
+     */
+
+    if (
+      currentKey &&
+      line.trim() &&
+      currentErrors.length > 0 &&
+      !/^Scanned:/i.test(line.trim())
+    ) {
+      currentErrors.push(line.trim());
+    }
+  }
+
+  saveCurrentFailure();
+
+  return failures;
+}
+
+const lintFailures = parseLintFailures(lintOutput);
+
+console.log('');
+console.log('=== Postman Collection Lint Failures ===');
+
+if (lintFailures.size === 0) {
+  console.log('No Postman collection lint failures found.');
+} else {
+  for (const [key, failure] of lintFailures.entries()) {
+    console.log(`FAIL ${key}`);
+
+    if (failure.file) {
+      console.log(`  File: ${failure.file}`);
+    }
+
+    console.log(`  Error: ${failure.message}`);
+  }
+}
+
+/*
+ * ------------------------------------------------------------
  * Parse Postman execution output
  * ------------------------------------------------------------
  */
@@ -211,13 +346,6 @@ for (let i = 0; i < executions.length; i++) {
  *
  * Newman reports assertion failures at the END of the run,
  * rather than inside the individual request execution section.
- *
- * Example:
- *
- * AssertionError Status code is 200
- * expected response to have status code 400 but got 200
- * at assertion:0 in test-script
- * inside "CUTECH-2865 - Retrieve a schema"
  * ------------------------------------------------------------
  */
 
@@ -263,8 +391,6 @@ if (newmanFailures.size === 0) {
   }
 }
 
-
-
 /*
  * ------------------------------------------------------------
  * Analyse one execution
@@ -275,29 +401,14 @@ function analyseExecution(execution, test) {
   const section = execution.section;
 
   /*
-   * ----------------------------------------------------------
    * Check whether this specific test appears in Newman's
    * final failure summary.
-   * ----------------------------------------------------------
    */
 
   const newmanFailure = newmanFailures.get(test.fullName);
 
   /*
-   * ----------------------------------------------------------
    * Detect failed assertions inside the request section.
-   *
-   * Newman displays failed assertions as:
-   *
-   * 1. Status code is 200
-   * 2. Status code is 200
-   *
-   * Successful assertions are displayed as:
-   *
-   * Pass Status code is 200
-   *
-   * Therefore a numbered assertion is considered a failure.
-   * ----------------------------------------------------------
    */
 
   const failedAssertionLines = [];
@@ -321,12 +432,7 @@ function analyseExecution(execution, test) {
     failedAssertionLines.length > 0;
 
   /*
-   * ----------------------------------------------------------
    * HTTP failures
-   *
-   * A 4xx/5xx response is considered an HTTP failure only when
-   * it wasn't already represented by an assertion failure.
-   * ----------------------------------------------------------
    */
 
   const hasHttpFailure =
@@ -335,17 +441,11 @@ function analyseExecution(execution, test) {
     );
 
   const failed =
-    hasAssertionFailure || hasHttpFailure;
+    hasAssertionFailure ||
+    hasHttpFailure;
 
   /*
-   * ----------------------------------------------------------
    * Expected / actual HTTP status
-   *
-   * First preference:
-   * Newman final failure summary.
-   *
-   * This is the authoritative source for failed assertions.
-   * ----------------------------------------------------------
    */
 
   let expectedStatus =
@@ -357,15 +457,7 @@ function analyseExecution(execution, test) {
     '';
 
   /*
-   * ----------------------------------------------------------
-   * Passing tests
-   *
-   * Successful status assertion appears as:
-   *
-   * Pass Status code is 200
-   *
-   * Extract 200 from that line.
-   * ----------------------------------------------------------
+   * Passing status assertion
    */
 
   if (!expectedStatus) {
@@ -380,18 +472,11 @@ function analyseExecution(execution, test) {
   }
 
   /*
-   * ----------------------------------------------------------
    * Assertion name
-   * ----------------------------------------------------------
    */
 
   let assertion =
     newmanFailure?.assertion || '';
-
-  /*
-   * If Newman did not provide the failure summary, use the
-   * failed assertion line from the request section.
-   */
 
   if (
     !assertion &&
@@ -402,9 +487,7 @@ function analyseExecution(execution, test) {
   }
 
   /*
-   * ----------------------------------------------------------
    * Failure reason
-   * ----------------------------------------------------------
    */
 
   let failureMessage =
@@ -439,15 +522,12 @@ function analyseExecution(execution, test) {
   }
 
   /*
-   * ----------------------------------------------------------
    * Assertions
-   * ----------------------------------------------------------
    */
 
   const assertions = [];
 
   for (const line of section.split(/\r?\n/)) {
-
     /*
      * PASS assertion
      */
@@ -467,13 +547,6 @@ function analyseExecution(execution, test) {
 
     /*
      * FAIL assertion
-     *
-     * Newman prints failed assertions as:
-     *
-     * 1. Status code is 200
-     *
-     * Do not treat Root or AssertionError lines as
-     * assertions.
      */
 
     const fail = line.match(
@@ -492,12 +565,6 @@ function analyseExecution(execution, test) {
     }
   }
 
-  /*
-   * ----------------------------------------------------------
-   * Return structured result
-   * ----------------------------------------------------------
-   */
-
   return {
     failed,
     expectedStatus,
@@ -508,14 +575,18 @@ function analyseExecution(execution, test) {
   };
 }
 
-
 /*
  * ------------------------------------------------------------
  * Match executions to Jira tests
  *
- * Authentication request is excluded.
+ * IMPORTANT:
  *
- * Collection order and Postman execution order must correspond.
+ * A test with a collection lint failure does NOT consume a
+ * Postman execution because Postman never successfully
+ * executed that request.
+ *
+ * This prevents test 5 from being incorrectly assigned
+ * to test 4.
  * ------------------------------------------------------------
  */
 
@@ -527,22 +598,10 @@ const usableExecutions = executions.filter(
 );
 
 console.log(
-  `Using ${Math.min(
-    usableExecutions.length,
-    collectionTests.length
-  )} execution(s) for ${collectionTests.length} Jira test(s)`
+  `Using ${usableExecutions.length} usable Postman execution(s)`
 );
 
-if (
-  usableExecutions.length <
-  collectionTests.length
-) {
-  console.warn(
-    `WARNING: Only ${usableExecutions.length} ` +
-    `Postman executions were found for ` +
-    `${collectionTests.length} Jira tests.`
-  );
-}
+let executionIndex = 0;
 
 /*
  * ------------------------------------------------------------
@@ -551,11 +610,6 @@ if (
  */
 
 const testCases = [];
-
-/*
- * This is the structured data that will be written to
- * xray-test-results.json.
- */
 const xrayResults = [];
 
 for (
@@ -564,11 +618,103 @@ for (
   i++
 ) {
   const test = collectionTests[i];
-  const execution = usableExecutions[i];
 
   /*
-   * Missing Postman execution
+   * ----------------------------------------------------------
+   * CASE 1:
+   * Collection/request lint failure
+   *
+   * No Postman execution is consumed.
+   * ----------------------------------------------------------
    */
+
+  const lintFailure = lintFailures.get(test.key);
+
+  if (lintFailure) {
+    const failureMessage =
+      `Postman collection validation failed: ${lintFailure.message}`;
+
+    const failureDetails = [
+      `Test: ${test.fullName}`,
+      `Status: FAIL`,
+      `Failure type: Collection/request validation`,
+      `Request definition: ${lintFailure.file || test.fullName}`,
+      `Failure: ${lintFailure.message}`,
+    ].join('\n');
+
+    xrayResults.push({
+      testKey: test.key,
+      testName: test.name,
+      fullName: test.fullName,
+      status: 'FAIL',
+      method: '',
+      requestUrl: '',
+      expectedStatus: '',
+      actualStatus: '',
+      assertion: '',
+      failureMessage,
+      assertions: [],
+    });
+
+    testCases.push(`
+  <testcase
+    name="${escapeXml(test.fullName)}"
+    classname="AEP API Regression">
+
+    <properties>
+
+      <property
+        name="test_key"
+        value="${escapeXml(test.key)}"/>
+
+      <property
+        name="test_name"
+        value="${escapeXml(test.name)}"/>
+
+      <property
+        name="status"
+        value="FAIL"/>
+
+      <property
+        name="failure_type"
+        value="REQUEST_VALIDATION"/>
+
+    </properties>
+
+    <failure
+      message="${escapeXml(failureMessage)}">${escapeXml(failureDetails)}</failure>
+
+    <system-out>${escapeXml(
+      [
+        `Test: ${test.fullName}`,
+        `Status: FAIL`,
+        `Failure type: Collection/request validation`,
+        `Request definition: ${lintFailure.file || test.fullName}`,
+        '',
+        'Failure details:',
+        lintFailure.message,
+      ].join('\n')
+    )}</system-out>
+
+  </testcase>`);
+
+    console.log(
+      `FAIL ${test.fullName} - collection/request validation failure`
+    );
+
+    continue;
+  }
+
+  /*
+   * ----------------------------------------------------------
+   * CASE 2:
+   * No execution available
+   * ----------------------------------------------------------
+   */
+
+  const execution =
+    usableExecutions[executionIndex];
+
   if (!execution) {
     const missingMessage =
       `No Postman execution was found for ${test.fullName}.`;
@@ -579,6 +725,7 @@ for (
     classname="AEP API Regression">
 
     <properties>
+
       <property
         name="test_key"
         value="${escapeXml(test.key)}"/>
@@ -590,12 +737,13 @@ for (
       <property
         name="status"
         value="ERROR"/>
+
     </properties>
 
     <error
-      message="No Postman execution found for this Jira test">
-${escapeXml(missingMessage)}
-    </error>
+      message="No Postman execution found for this Jira test">${escapeXml(
+        missingMessage
+      )}</error>
 
   </testcase>`);
 
@@ -613,11 +761,29 @@ ${escapeXml(missingMessage)}
       assertions: [],
     });
 
+    console.log(
+      `ERROR ${test.fullName} - no Postman execution`
+    );
+
     continue;
   }
 
+  /*
+   * Only consume a Postman execution for a test that was
+   * actually eligible to run.
+   */
+
+  executionIndex++;
+
+  /*
+   * ----------------------------------------------------------
+   * CASE 3:
+   * Normal Postman execution
+   * ----------------------------------------------------------
+   */
+
   const result =
-  analyseExecution(execution, test);
+    analyseExecution(execution, test);
 
   const status =
     result.failed ? 'FAIL' : 'PASS';
@@ -774,6 +940,23 @@ ${escapeXml(missingMessage)}
   </testcase>`;
 
   testCases.push(testcase);
+
+  console.log(
+    `${status} ${test.fullName}`
+  );
+}
+
+/*
+ * ------------------------------------------------------------
+ * Warn if there are unused executions
+ * ------------------------------------------------------------
+ */
+
+if (executionIndex < usableExecutions.length) {
+  console.warn(
+    `WARNING: ${usableExecutions.length - executionIndex} ` +
+    `Postman execution(s) were not matched to Jira tests.`
+  );
 }
 
 /*

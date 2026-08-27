@@ -221,11 +221,41 @@ jobs:
       # ----------------------------------------
 
       - name: Validate Postman Collection
+        if: always()
+        shell: bash
         run: |
+          echo "=== Validating Postman collection ==="
+
+          set +e
+
           postman collection lint \
-            "postman/collections/aep-regression"
+            "postman/collections/aep-regression" \
+            2>&1 | tee postman-lint.txt
 
+          LINT_EXIT_CODE=${PIPESTATUS[0]}
 
+          set -e
+
+          echo "=== Postman lint exit code: $LINT_EXIT_CODE ==="
+
+          # Do NOT fail the workflow here.
+          # The JUnit/Xray reporting steps need to run so that
+          # request/collection failures can be reported against
+          # the correct Jira test case.
+
+          echo "POSTMAN_LINT_EXIT_CODE=$LINT_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          if [ "$LINT_EXIT_CODE" -ne 0 ]; then
+            echo "WARNING: Postman collection contains lint errors."
+            echo "The errors will be reported against the affected Xray tests."
+          else
+            echo "Postman collection lint passed."
+          fi
+
+          echo "=== Postman lint output saved to postman-lint.txt ==="
+          ls -lh postman-lint.txt
+
+      
       
       # ----------------------------------------
       # 9. Run Postman collection
