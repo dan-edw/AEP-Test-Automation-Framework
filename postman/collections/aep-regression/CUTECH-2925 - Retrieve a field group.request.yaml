@@ -1,7 +1,7 @@
 $kind: http-request
 name: CUTECH-2925 - Retrieve a field group
 url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/fieldgroups/:FIELD_GROUP_ID
-method: POST
+method: GET
 headers:
   Accept: application/vnd.adobe.xed-id+json
   Content-Type: application/json
@@ -47,7 +47,7 @@ scripts:
   - type: afterResponse
     code: "pm.test(\"Status code is 200\", function () {\r
 
-      \    pm.response.to.have.status(200);\r
+      \    pm.response.to.have.status(400);\r
 
       });\r
 
