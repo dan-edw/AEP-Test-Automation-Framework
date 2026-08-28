@@ -4,13 +4,13 @@ url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/fiel
 method: GET
 headers:
   Accept: application/vnd.adobe.xed-id+json
-  Content-Type: application/json
+  Content-Type: 
   Authorization: Bearer {{ACCESS_TOKEN}}
   x-api-key: "{{AEP_CLIENT_ID}}"
   x-gw-ims-org-id: "{{AEP_IMS_ORG}}"
   x-sandbox-name: "{{AEP_SANDBOX_NAME}}"
 pathVariables:
-  CONTAINER_ID: 
+  CONTAINER_ID: tenant
   FIELD_GROUP_ID: _ioof.mixins.cc035ce41bc511532e9e89201c376194f107ce9ba009b83
 scripts:
   - type: beforeRequest
