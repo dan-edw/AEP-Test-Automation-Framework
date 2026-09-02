@@ -1,5 +1,5 @@
 $kind: http-request
-name: CUTECH-2931 - Retrieve a list of destination configurations
+name: CUTECH-4147 - Retrieve a list of destination configurations
 url: https://platform.adobe.io/data/core/activation/authoring/destinations
 method: GET
 headers:

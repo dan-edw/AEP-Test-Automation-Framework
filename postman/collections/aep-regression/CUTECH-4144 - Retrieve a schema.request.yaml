@@ -1,6 +1,6 @@
 $kind: http-request
-name: CUTECH-2860 - List Schemas
-url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/schemas?property={{property}}&orderby={{orderby}}&start={{start}}&limit={{limit}}
+name: CUTECH-4144 - Retrieve a schema
+url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/schemas/:SCHEMA_ID
 method: GET
 headers:
   Accept: application/vnd.adobe.xed-id+json
@@ -11,6 +11,7 @@ headers:
   x-sandbox-name: "{{AEP_SANDBOX_NAME}}"
 pathVariables:
   CONTAINER_ID: tenant
+  SCHEMA_ID: _ioof.schemas.be43fa5b3c09870e946cda9a334a90c999aa77b79c64698
 scripts:
   - type: beforeRequest
     code: "/** Begin Adobe-provided Pre-Request Scripts **/\r
@@ -54,16 +55,6 @@ scripts:
 
       \    pm.response.to.be.json\r
 
-      });\r
-
-      pm.test(\"Results are an array\", function () {\r
-
-      \    const response = pm.response.json();\r
-
-      \r
-
-      \    pm.expect(response.results).to.be.an('array');\r
-
       });"
     language: text/javascript
-order: 1273865659216956
+order: 1273865659216957

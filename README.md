@@ -121,6 +121,10 @@ The workflow uses the following GitHub secrets:
 | `AEP_SCOPE` | AEP authentication scope |
 | `AEP_IMS_ORG` | AEP IMS organisation |
 | `XRAY_PROJECT_KEY` | Xray/Jira project key |
+| `XRAY_CLIENT_ID` | Xray/Jira authentication client ID |
+| `XRAY_CLIENT_SECRET` | Xray/Jira authentication client secret |
+| `POSTMAN_API_KEY` | POSTMAN authentication key |
+| `JIRA_URL` | JIRA Environment |
 
 The Xray authentication token is exposed to the workflow through:
 

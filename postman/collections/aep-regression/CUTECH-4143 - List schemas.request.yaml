@@ -1,6 +1,6 @@
 $kind: http-request
-name: CUTECH-2856 - List field groups
-url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/fieldgroups
+name: CUTECH-4143 - List Schemas
+url: https://platform.adobe.io/data/foundation/schemaregistry/:CONTAINER_ID/schemas?property={{property}}&orderby={{orderby}}&start={{start}}&limit={{limit}}
 method: GET
 headers:
   Accept: application/vnd.adobe.xed-id+json
@@ -66,4 +66,4 @@ scripts:
 
       });"
     language: text/javascript
-order: 1273865659216955
+order: 1273865659216956
