@@ -6,7 +6,7 @@ headers:
   Accept: application/json
   Content-Type: application/json
   Authorization: Bearer {{ACCESS_TOKEN}}
-  x-api-key: "{{API_KEY}}"
+  x-api-key: "{{AEP_CLIENT_ID}}"
   x-gw-ims-org-id: "{{AEP_IMS_ORG}}"
   x-sandbox-name: "{{AEP_SANDBOX_NAME}}"
 scripts:
