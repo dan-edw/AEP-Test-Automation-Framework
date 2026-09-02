@@ -97,12 +97,14 @@ postman/environments/ci-environment.json
 
 # Prerequisites
 
-The GitHub Actions runner requires the tools used by the workflow, including:
+The GitHub Actions runner requires the tools used by the workflow and test case preparation, including:
 
 - Bash
 - Postman CLI
 - `curl`
 - `jq`
+- Access to Postman UI
+- Test Cases have been created in Xray
 
 The workflow uses the Postman CLI to execute the regression collection and uses `curl` and `jq` to communicate with Xray's REST/GraphQL APIs and process the returned JSON.
 
@@ -394,7 +396,7 @@ Passed:  2
 Failed:  1
 ```
 
-Postman/Newman may return:
+Postman may return:
 
 ```text
 POSTMAN_EXIT_CODE=1
@@ -546,6 +548,7 @@ The workflow also sanitises sensitive AEP values from the Postman report before 
 Do not commit:
 
 - AEP client secrets
+- Postman API key
 - Xray tokens
 - Jira authentication credentials
 - Other credentials or sensitive environment values
